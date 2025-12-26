@@ -1,11 +1,14 @@
 'use client';
 import { useState } from 'react';
-import { supabase } from '@/app/lib/supabase'; // パスに注意
+import { supabase } from './lib/supabase';
 
 export default function Home() {
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  
+  // ★追加: 支払った人の状態管理（初期値は 'me' = 自分）
+  const [payer, setPayer] = useState<'me' | 'partner'>('me');
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -47,13 +50,13 @@ export default function Home() {
     if (!result) return;
     setSaving(true);
 
-    // Supabaseへ保存
     const { error } = await supabase
       .from('expenses')
       .insert({
         store_name: result.store,
         amount: result.amount,
         purchase_date: result.date,
+        paid_by: payer, // ★追加: 選択された人を保存
       });
 
     setSaving(false);
@@ -116,14 +119,42 @@ export default function Home() {
                 />
               </div>
             </div>
+
+            {/* ★追加: 支払った人の選択エリア */}
+            <div className="pt-4">
+              <label className="text-xs text-gray-500 block mb-2">支払った人</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setPayer('me')}
+                  className={`py-3 rounded-lg font-bold border-2 transition ${
+                    payer === 'me' 
+                      ? 'border-blue-500 bg-blue-50 text-blue-600' 
+                      : 'border-gray-200 text-gray-400'
+                  }`}
+                >
+                  自分
+                </button>
+                <button
+                  onClick={() => setPayer('partner')}
+                  className={`py-3 rounded-lg font-bold border-2 transition ${
+                    payer === 'partner' 
+                      ? 'border-pink-500 bg-pink-50 text-pink-600' 
+                      : 'border-gray-200 text-gray-400'
+                  }`}
+                >
+                  パートナー
+                </button>
+              </div>
+            </div>
+
           </div>
 
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-blue-700 transition disabled:bg-gray-400"
+            className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-gray-800 transition disabled:bg-gray-400 shadow-md"
           >
-            {saving ? '保存中...' : 'これで保存する'}
+            {saving ? '保存中...' : '記録する'}
           </button>
         </div>
       )}
