@@ -1,21 +1,25 @@
-import type { Metadata } from "next";
-// Noto_Sans_JP から M_PLUS_Rounded_1c に変更
+import type { Metadata, Viewport } from "next";
 import { M_PLUS_Rounded_1c } from "next/font/google";
 import "./globals.css";
 
-// M PLUS Rounded 1c を設定
 const mPlusRounded1c = M_PLUS_Rounded_1c({
   subsets: ["latin"],
-  weight: ["400", "500", "700", "800"], // 必要な太さを指定
+  weight: ["400", "500", "700", "800"],
   variable: "--font-m-plus-rounded-1c",
 });
+
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false, // user-scalable=no は boolean で指定
+};
 
 export const metadata: Metadata = {
   title: "Scan.io | スマート家計簿",
   description: "レシートスキャンで割り勘を自動化するWebアプリ",
   manifest: "/manifest.json", 
-  themeColor: "#ffffff",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -30,7 +34,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      {/* className を mPlusRounded1c に変更 */}
       <body className={mPlusRounded1c.className}>{children}</body>
     </html>
   );
