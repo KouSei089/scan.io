@@ -6,16 +6,25 @@ import Modal from '../components/Modal';
 import EditModal from '../components/EditModal';
 import CategoryChart from '../components/CategoryChart';
 import AnalysisModal from '../components/AnalysisModal';
-import { Smile } from 'lucide-react';
+import { Smile, MessageCircle, Send, Pencil, Trash2, X, Check } from 'lucide-react';
+
+type Comment = {
+  id: string;
+  user: string;
+  text: string;
+  timestamp: string;
+};
 
 type Expense = {
   id: number;
   store_name: string;
   amount: number;
   purchase_date: string;
+  created_at: string;
   paid_by: string;
   category: string | null;
   reactions: { [key: string]: string } | null;
+  comments: Comment[] | null;
 };
 
 const REACTION_TYPES = [
@@ -41,14 +50,25 @@ const REACTION_TYPES = [
   },
 ];
 
+// ID生成用関数 (cryptoエラー回避)
+const generateId = () => {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2);
+};
+
 export default function SettlementPage() {
   const router = useRouter();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [myUserName, setMyUserName] = useState<string>('');
-  const [activePickerId, setActivePickerId] = useState<number | null>(null);
   
+  const [activePickerId, setActivePickerId] = useState<number | null>(null);
+  const [activeCommentId, setActiveCommentId] = useState<number | null>(null);
+  const [commentText, setCommentText] = useState('');
+  
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+
   const [modalConfig, setModalConfig] = useState({
     isOpen: false, type: 'confirm' as 'alert' | 'confirm', title: '', message: '', onConfirm: () => {},
   });
@@ -66,7 +86,10 @@ export default function SettlementPage() {
   }, [router]);
 
   useEffect(() => {
-    const handleClickOutside = () => setActivePickerId(null);
+    const handleClickOutside = (e: MouseEvent) => {
+      if ((e.target as Element).closest('.comment-area')) return;
+      setActivePickerId(null);
+    };
     window.addEventListener('click', handleClickOutside);
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
@@ -89,6 +112,7 @@ export default function SettlementPage() {
     const toYMD = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const firstDayStr = toYMD(new Date(year, month, 1));
     const lastDayStr = toYMD(new Date(year, month + 1, 0));
+    
     const { data, error } = await supabase.from('expenses').select('*').gte('purchase_date', firstDayStr).lte('purchase_date', lastDayStr).order('purchase_date', { ascending: false });
     if (error) console.error(error); else setExpenses(data || []);
     setLoading(false);
@@ -139,6 +163,76 @@ export default function SettlementPage() {
     const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, reactions: newReactions } : e);
     setExpenses(updatedExpenses);
     await supabase.from('expenses').update({ reactions: newReactions }).eq('id', item.id);
+  };
+
+  const handleCommentSubmit = async (item: Expense) => {
+    if (!commentText.trim()) return;
+
+    const newComment: Comment = {
+      id: generateId(),
+      user: myUserName,
+      text: commentText.trim(),
+      timestamp: new Date().toISOString(),
+    };
+
+    const currentComments = item.comments || [];
+    const newComments = [...currentComments, newComment];
+
+    const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e);
+    setExpenses(updatedExpenses);
+    setCommentText('');
+
+    await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id);
+  };
+
+  // ★追加: コメント削除の確認モーダルを表示
+  const handleDeleteCommentClick = (item: Expense, commentId: string) => {
+    setModalConfig({
+      isOpen: true,
+      type: 'confirm',
+      title: 'コメントの削除',
+      message: '本当にこのコメントを削除しますか？',
+      onConfirm: () => executeDeleteComment(item, commentId),
+    });
+  };
+
+  // ★修正: 実際にコメントを削除する処理（モーダルから呼ばれる）
+  const executeDeleteComment = async (item: Expense, commentId: string) => {
+    closeModal(); // モーダルを閉じる
+
+    const currentComments = item.comments || [];
+    const newComments = currentComments.filter(c => c.id !== commentId);
+
+    const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e);
+    setExpenses(updatedExpenses);
+
+    await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id);
+  };
+
+  const handleStartEditComment = (comment: Comment) => {
+    setEditingCommentId(comment.id);
+    setEditingText(comment.text);
+  };
+
+  const handleSaveEditComment = async (item: Expense) => {
+    if (!editingText.trim() || !editingCommentId) return;
+
+    const currentComments = item.comments || [];
+    const newComments = currentComments.map(c => 
+      c.id === editingCommentId ? { ...c, text: editingText.trim() } : c
+    );
+
+    const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e);
+    setExpenses(updatedExpenses);
+    setEditingCommentId(null);
+    setEditingText('');
+
+    await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id);
+  };
+
+  const formatDate = (dateString: string) => {
+    const d = new Date(dateString);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
   };
 
   const totalMe = expenses.filter(e => e.paid_by === myUserName).reduce((sum, e) => sum + e.amount, 0);
@@ -212,6 +306,8 @@ export default function SettlementPage() {
                   const isMe = item.paid_by === myUserName;
                   const reactions = item.reactions || {};
                   const reactionEntries = Object.entries(reactions);
+                  const comments = item.comments || [];
+                  const isCommentOpen = activeCommentId === item.id;
 
                   return (
                     <li key={item.id} className="bg-white/80 backdrop-blur-md p-5 rounded-3xl shadow-sm border border-white/60 hover:bg-white transition-all">
@@ -220,7 +316,10 @@ export default function SettlementPage() {
                           <span className="text-3xl bg-gray-100/80 p-3 rounded-2xl shadow-inner">{getCategoryIcon(item.category)}</span>
                           <div>
                             <p className="font-black text-gray-800 text-lg mb-0.5">{item.store_name || '店名なし'}</p>
-                            <p className="text-gray-400 text-xs font-bold">{item.purchase_date.replace(/-/g, '/')}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-gray-500 text-xs font-bold">{formatDate(item.purchase_date)}</p>
+                              {item.created_at && <p className="text-gray-300 text-[10px]">(登録: {formatDate(item.created_at)})</p>}
+                            </div>
                           </div>
                         </div>
                         <div className="text-right">
@@ -230,25 +329,20 @@ export default function SettlementPage() {
                       </div>
 
                       <div className="flex items-center gap-2 mt-2 relative min-h-[32px] flex-wrap">
-                        
-                        {/* 3D絵文字リアクションチップ (スタイル修正) */}
                         {reactionEntries.map(([user, reactionId]) => {
                           const isMyReaction = user === myUserName;
                           const reactionType = REACTION_TYPES.find(r => r.id === reactionId);
                           if (!reactionType) return null;
-
                           return (
                             <button
                               key={user}
                               onClick={(e) => { e.stopPropagation(); handleReaction(item, reactionId); }}
-                              // ★修正ポイント: py-1.5 -> py-1 に変更し、leading-none を追加
                               className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm leading-none shadow-sm transition-all border group relative overflow-hidden ${
                                 isMyReaction 
                                   ? `${reactionType.bg} ${reactionType.border} ${reactionType.text} ring-1 ring-white`
                                   : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100 grayscale hover:grayscale-0'
                               }`}
                             >
-                              {/* ★修正ポイント: block クラスを追加 */}
                               <img src={reactionType.src} alt="reaction" className="w-5 h-5 object-contain block drop-shadow-sm transition-transform active:scale-90" />
                               <span className="text-[10px] font-bold">{user}</span>
                             </button>
@@ -258,12 +352,10 @@ export default function SettlementPage() {
                         <div className="relative">
                           <button 
                             onClick={(e) => { e.stopPropagation(); setActivePickerId(activePickerId === item.id ? null : item.id); }}
-                            // ★修正ポイント: こちらも leading-none を追加して高さを合わせる
                             className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 border border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors leading-none"
                           >
                             <Smile size={18} strokeWidth={2.5} />
                           </button>
-
                           {activePickerId === item.id && (
                             <div className="absolute left-0 bottom-full mb-2 bg-white/90 backdrop-blur-md rounded-2xl shadow-xl border border-slate-100 p-2 flex gap-2 z-50 animate-in slide-in-from-bottom-2 fade-in duration-200">
                               {REACTION_TYPES.map((type) => (
@@ -280,6 +372,18 @@ export default function SettlementPage() {
                           )}
                         </div>
 
+                        <button 
+                          onClick={() => setActiveCommentId(isCommentOpen ? null : item.id)}
+                          className={`w-8 h-8 flex items-center justify-center rounded-full border transition-colors leading-none ${
+                            comments.length > 0 
+                              ? 'bg-blue-50 border-blue-200 text-blue-500' 
+                              : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                          }`}
+                        >
+                          <MessageCircle size={18} strokeWidth={2.5} className={comments.length > 0 ? 'fill-blue-100' : ''} />
+                          {comments.length > 0 && <span className="sr-only">{comments.length}</span>}
+                        </button>
+
                         {isMe && (
                           <div className="ml-auto flex gap-3">
                             <button onClick={() => handleEditClick(item)} className="text-xs font-bold text-slate-400 hover:text-blue-500 transition-colors">編集</button>
@@ -287,6 +391,83 @@ export default function SettlementPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* コメントエリア */}
+                      {isCommentOpen && (
+                        <div className="comment-area mt-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2 fade-in duration-200">
+                          {comments.length > 0 ? (
+                            <ul className="space-y-4 mb-4">
+                              {comments.map((comment, i) => {
+                                const isMyComment = comment.user === myUserName;
+                                const isEditing = editingCommentId === comment.id;
+
+                                return (
+                                  <li key={comment.id || i} className={`flex flex-col ${isMyComment ? 'items-end' : 'items-start'}`}>
+                                    {isEditing ? (
+                                      <div className="w-full max-w-[90%] flex gap-2 items-end">
+                                        <textarea
+                                          value={editingText}
+                                          onChange={(e) => setEditingText(e.target.value)}
+                                          className="flex-1 bg-white border border-blue-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none h-20"
+                                        />
+                                        <div className="flex flex-col gap-2">
+                                          <button onClick={() => handleSaveEditComment(item)} className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600"><Check size={14} /></button>
+                                          <button onClick={() => setEditingCommentId(null)} className="p-2 bg-slate-200 text-slate-500 rounded-full hover:bg-slate-300"><X size={14} /></button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className={`px-4 py-2.5 rounded-2xl text-sm max-w-[85%] whitespace-pre-wrap leading-relaxed shadow-sm relative group ${
+                                          isMyComment 
+                                            ? 'bg-blue-500 text-white rounded-tr-none' 
+                                            : 'bg-slate-100 text-slate-700 rounded-tl-none'
+                                        }`}>
+                                          {comment.text}
+                                          {isMyComment && (
+                                            <div className="absolute -left-16 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                              {/* ★修正: 専用モーダルを呼び出すように変更 */}
+                                              <button onClick={() => handleDeleteCommentClick(item, comment.id)} className="p-1.5 bg-rose-100 text-rose-500 rounded-full hover:bg-rose-200"><Trash2 size={12} /></button>
+                                              <button onClick={() => handleStartEditComment(comment)} className="p-1.5 bg-blue-100 text-blue-500 rounded-full hover:bg-blue-200"><Pencil size={12} /></button>
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="flex gap-2 mt-1 px-1">
+                                          <span className="text-[10px] font-bold text-slate-400">{comment.user}</span>
+                                          <span className="text-[10px] text-slate-300">{formatDate(comment.timestamp)}</span>
+                                        </div>
+                                      </>
+                                    )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-slate-400 text-center mb-4">まだコメントはありません。会話を始めましょう！</p>
+                          )}
+
+                          <div className="flex gap-2 items-end">
+                            <textarea
+                              value={commentText}
+                              onChange={(e) => setCommentText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                  handleCommentSubmit(item);
+                                }
+                              }}
+                              placeholder="コメントを入力..."
+                              className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all resize-none h-12 min-h-[48px] max-h-32"
+                            />
+                            <button 
+                              onClick={() => handleCommentSubmit(item)}
+                              disabled={!commentText.trim()}
+                              className="w-10 h-10 mb-1 flex items-center justify-center rounded-full bg-blue-500 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600 transition-all active:scale-95"
+                            >
+                              <Send size={18} strokeWidth={2.5} className="ml-0.5" />
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-slate-300 text-center mt-2">Ctrl + Enter で送信</p>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
