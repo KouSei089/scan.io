@@ -3,18 +3,17 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-type EditModalProps = {
+type TemplateModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  expense: any;
   onUpdate: () => void;
 };
 
-export default function EditModal({ isOpen, onClose, expense, onUpdate }: EditModalProps) {
+export default function TemplateModal({ isOpen, onClose, onUpdate }: TemplateModalProps) {
   const [formData, setFormData] = useState({
+    title: '',
     store_name: '',
-    purchase_date: '',
-    amount: 0,
+    amount: '',
     category: 'food',
     paid_by: '',
   });
@@ -22,40 +21,44 @@ export default function EditModal({ isOpen, onClose, expense, onUpdate }: EditMo
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (isOpen && expense) {
+    if (isOpen) {
       setFormData({
-        store_name: expense.store_name,
-        purchase_date: expense.purchase_date,
-        amount: expense.amount,
-        category: expense.category || 'food',
-        paid_by: expense.paid_by,
+        title: '',
+        store_name: '',
+        amount: '',
+        category: 'food',
+        paid_by: localStorage.getItem('scan_io_user_name') || '',
       });
       fetchUsers();
     }
-  }, [isOpen, expense]);
+  }, [isOpen]);
 
   const fetchUsers = async () => {
-    const { data } = await supabase.from('users').select('id, name').order('id');
+    const { data } = await supabase.from('users').select('id, name');
     if (data) setUsers(data);
   };
 
   const handleSave = async () => {
+    if (!formData.title || !formData.amount || !formData.paid_by) {
+      alert('タイトル、金額、支払う人は必須です');
+      return;
+    }
+
     setSaving(true);
     const { error } = await supabase
-      .from('expenses')
-      .update({
-        store_name: formData.store_name,
-        amount: formData.amount,
-        purchase_date: formData.purchase_date,
+      .from('templates')
+      .insert({
+        title: formData.title,
+        store_name: formData.store_name || formData.title,
+        amount: Number(formData.amount),
         category: formData.category,
         paid_by: formData.paid_by,
-      })
-      .eq('id', expense.id);
+      });
 
     setSaving(false);
 
     if (error) {
-      alert('更新に失敗しました');
+      alert('登録に失敗しました');
     } else {
       onUpdate();
       onClose();
@@ -73,36 +76,39 @@ export default function EditModal({ isOpen, onClose, expense, onUpdate }: EditMo
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-xl animate-in zoom-in-95 duration-200">
-        <h3 className="text-xl font-bold mb-6 text-gray-800">記録の編集</h3>
+        <h3 className="text-xl font-bold mb-6 text-gray-800">よく使う支払いの登録</h3>
+        <p className="text-sm text-gray-500 mb-6">ボタンを押すだけで登録できるようになります。</p>
         
         <div className="space-y-6">
           <div>
-            <label className="text-sm text-gray-500 block mb-1">店名</label>
+            <label className="text-sm text-gray-500 block mb-1">ボタンの表示名 (必須)</label>
             <input
-              value={formData.store_name}
-              onChange={(e) => setFormData({ ...formData, store_name: e.target.value })}
+              placeholder="例: 家賃, Netflix"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               className="w-full border-b border-gray-100 py-2 font-bold focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
           <div>
-            <label className="text-sm text-gray-500 block mb-1">日付</label>
+            <label className="text-sm text-gray-500 block mb-1">店名 (任意)</label>
             <input
-              type="date"
-              value={formData.purchase_date}
-              onChange={(e) => setFormData({ ...formData, purchase_date: e.target.value })}
+              placeholder="空欄なら表示名と同じになります"
+              value={formData.store_name}
+              onChange={(e) => setFormData({ ...formData, store_name: e.target.value })}
               className="w-full border-b border-gray-100 py-2 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
           <div>
-            <label className="text-sm text-gray-500 block mb-1">金額</label>
+            <label className="text-sm text-gray-500 block mb-1">金額 (必須)</label>
             <div className="flex items-end">
               <span className="text-lg mr-2">¥</span>
               <input
                 type="number"
+                placeholder="0"
                 value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: Number(e.target.value) })}
+                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                 className="w-full border-b border-gray-100 py-2 text-2xl font-bold text-blue-600 focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
@@ -126,7 +132,7 @@ export default function EditModal({ isOpen, onClose, expense, onUpdate }: EditMo
           </div>
 
           <div>
-            <label className="text-sm text-gray-500 block mb-3">支払った人</label>
+            <label className="text-sm text-gray-500 block mb-3">支払う人</label>
             <div className="relative">
               <select
                 value={formData.paid_by}
@@ -147,7 +153,7 @@ export default function EditModal({ isOpen, onClose, expense, onUpdate }: EditMo
         <div className="flex gap-4 mt-8">
           <button onClick={onClose} className="flex-1 py-4 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50 transition">キャンセル</button>
           <button onClick={handleSave} disabled={saving} className="flex-1 py-4 bg-blue-600 rounded-xl font-bold text-white shadow-md hover:bg-blue-700 transition">
-            {saving ? '保存中...' : '更新'}
+            登録
           </button>
         </div>
       </div>

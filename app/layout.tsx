@@ -1,19 +1,21 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+// Noto_Sans_JP から M_PLUS_Rounded_1c に変更
+import { M_PLUS_Rounded_1c } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+// M PLUS Rounded 1c を設定
+const mPlusRounded1c = M_PLUS_Rounded_1c({
+  subsets: ["latin"],
+  weight: ["400", "500", "700", "800"], // 必要な太さを指定
+  variable: "--font-m-plus-rounded-1c",
+});
 
-// ★ここがメタデータの設定です
 export const metadata: Metadata = {
   title: "Scan.io | スマート家計簿",
   description: "レシートスキャンで割り勘を自動化するWebアプリ",
-  // スマホでホーム画面に追加した時の設定（任意）
   manifest: "/manifest.json", 
   themeColor: "#ffffff",
-  // スマホでの表示倍率を固定して使いやすくする
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
-  // iOS用のアイコン設定
+  viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -27,9 +29,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // 言語設定を日本語に変更
     <html lang="ja">
-      <body className={inter.className}>{children}</body>
+      {/* className を mPlusRounded1c に変更 */}
+      <body className={mPlusRounded1c.className}>{children}</body>
     </html>
   );
 }
