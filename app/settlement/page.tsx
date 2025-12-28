@@ -6,7 +6,8 @@ import Modal from '../components/Modal';
 import EditModal from '../components/EditModal';
 import CategoryChart from '../components/CategoryChart';
 import AnalysisModal from '../components/AnalysisModal';
-import { Smile, MessageCircle, Send, Pencil, Trash2, X, Check } from 'lucide-react';
+// ★追加: Paperclipアイコン
+import { Smile, MessageCircle, Send, Pencil, Trash2, X, Check, Paperclip } from 'lucide-react';
 
 type Comment = {
   id: string;
@@ -25,6 +26,8 @@ type Expense = {
   category: string | null;
   reactions: { [key: string]: string } | null;
   comments: Comment[] | null;
+  group_id: string | null;
+  receipt_url: string | null; // ★追加: 画像URL
 };
 
 const REACTION_TYPES = [
@@ -50,7 +53,6 @@ const REACTION_TYPES = [
   },
 ];
 
-// ID生成用関数 (cryptoエラー回避)
 const generateId = () => {
   return Date.now().toString(36) + Math.random().toString(36).substring(2);
 };
@@ -81,8 +83,11 @@ export default function SettlementPage() {
 
   useEffect(() => {
     const storedName = localStorage.getItem('scan_io_user_name');
-    if (!storedName) router.push('/login');
-    else setMyUserName(storedName);
+    if (!storedName) {
+      router.push('/login');
+    } else {
+      setMyUserName(storedName);
+    }
   }, [router]);
 
   useEffect(() => {
@@ -113,7 +118,13 @@ export default function SettlementPage() {
     const firstDayStr = toYMD(new Date(year, month, 1));
     const lastDayStr = toYMD(new Date(year, month + 1, 0));
     
-    const { data, error } = await supabase.from('expenses').select('*').gte('purchase_date', firstDayStr).lte('purchase_date', lastDayStr).order('purchase_date', { ascending: false });
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('*')
+      .gte('purchase_date', firstDayStr)
+      .lte('purchase_date', lastDayStr)
+      .order('purchase_date', { ascending: false });
+
     if (error) console.error(error); else setExpenses(data || []);
     setLoading(false);
   };
@@ -185,7 +196,6 @@ export default function SettlementPage() {
     await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id);
   };
 
-  // ★追加: コメント削除の確認モーダルを表示
   const handleDeleteCommentClick = (item: Expense, commentId: string) => {
     setModalConfig({
       isOpen: true,
@@ -196,10 +206,8 @@ export default function SettlementPage() {
     });
   };
 
-  // ★修正: 実際にコメントを削除する処理（モーダルから呼ばれる）
   const executeDeleteComment = async (item: Expense, commentId: string) => {
-    closeModal(); // モーダルを閉じる
-
+    closeModal();
     const currentComments = item.comments || [];
     const newComments = currentComments.filter(c => c.id !== commentId);
 
@@ -315,7 +323,15 @@ export default function SettlementPage() {
                         <div className="flex items-center gap-4">
                           <span className="text-3xl bg-gray-100/80 p-3 rounded-2xl shadow-inner">{getCategoryIcon(item.category)}</span>
                           <div>
-                            <p className="font-black text-gray-800 text-lg mb-0.5">{item.store_name || '店名なし'}</p>
+                            <div className="flex items-center gap-2">
+                                <p className="font-black text-gray-800 text-lg mb-0.5">{item.store_name || '店名なし'}</p>
+                                {/* ★追加: レシート画像があるならクリップアイコン表示 */}
+                                {item.receipt_url && (
+                                    <a href={item.receipt_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 p-1 bg-blue-50 rounded-full transition-colors" onClick={(e) => e.stopPropagation()}>
+                                        <Paperclip size={14} />
+                                    </a>
+                                )}
+                            </div>
                             <div className="flex items-center gap-2">
                               <p className="text-gray-500 text-xs font-bold">{formatDate(item.purchase_date)}</p>
                               {item.created_at && <p className="text-gray-300 text-[10px]">(登録: {formatDate(item.created_at)})</p>}
@@ -327,7 +343,8 @@ export default function SettlementPage() {
                           <span className={`text-xs px-3 py-1 rounded-full font-bold shadow-sm ${isMe ? 'bg-slate-100 text-slate-600' : 'bg-rose-50 text-rose-600'}`}>{item.paid_by}</span>
                         </div>
                       </div>
-
+                      
+                      {/* 以下、リアクションとコメント部分は以前と同じ */}
                       <div className="flex items-center gap-2 mt-2 relative min-h-[32px] flex-wrap">
                         {reactionEntries.map(([user, reactionId]) => {
                           const isMyReaction = user === myUserName;
@@ -425,7 +442,6 @@ export default function SettlementPage() {
                                           {comment.text}
                                           {isMyComment && (
                                             <div className="absolute -left-16 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                              {/* ★修正: 専用モーダルを呼び出すように変更 */}
                                               <button onClick={() => handleDeleteCommentClick(item, comment.id)} className="p-1.5 bg-rose-100 text-rose-500 rounded-full hover:bg-rose-200"><Trash2 size={12} /></button>
                                               <button onClick={() => handleStartEditComment(comment)} className="p-1.5 bg-blue-100 text-blue-500 rounded-full hover:bg-blue-200"><Pencil size={12} /></button>
                                             </div>
