@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
 import Modal from '../components/Modal';
 import EditModal from '../components/EditModal';
+import CategoryChart from '../components/CategoryChart';
 
 type Expense = {
   id: number;
@@ -111,10 +112,10 @@ export default function SettlementPage() {
   const balance = totalMe - splitAmount;
   const monthLabel = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
 
-  if (!myUserName) return <div className="min-h-screen bg-gray-50"></div>;
+  if (!myUserName) return <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100"></div>;
 
   return (
-    <div className="p-6 max-w-md mx-auto min-h-screen bg-gray-50 text-gray-800 relative">
+    <div className="p-8 max-w-md mx-auto min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 text-gray-800 relative pb-32">
       <Modal
         isOpen={modalConfig.isOpen}
         onClose={closeModal}
@@ -132,74 +133,80 @@ export default function SettlementPage() {
         onUpdate={handleUpdateComplete}
       />
 
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">精算</h1>
-        <button onClick={() => window.location.href = '/'} className="text-sm text-blue-600 underline bg-transparent border-none cursor-pointer">← 入力に戻る</button>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 drop-shadow-sm">精算</h1>
+        <button onClick={() => window.location.href = '/'} className="text-sm font-bold text-blue-700 bg-white/80 backdrop-blur-md border border-white/40 px-4 py-2 rounded-full hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm">← 入力に戻る</button>
       </div>
 
-      <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
-        <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-100 rounded-full">◀︎ 先月</button>
-        <span className="font-bold text-lg text-gray-700">{monthLabel}</span>
-        <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-100 rounded-full">次月 ▶︎</button>
+      <div className="flex items-center justify-between bg-white/70 backdrop-blur-xl p-4 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/40 mb-8 relative overflow-hidden">
+         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/50 to-transparent pointer-events-none"></div>
+        <button onClick={() => changeMonth(-1)} className="p-4 hover:bg-white/50 rounded-full transition text-gray-500 relative z-10">◀︎ 先月</button>
+        <span className="font-black text-2xl text-gray-700 relative z-10">{monthLabel}</span>
+        <button onClick={() => changeMonth(1)} className="p-4 hover:bg-white/50 rounded-full transition text-gray-500 relative z-10">次月 ▶︎</button>
       </div>
 
       {loading ? (
-        <div className="text-center py-10 text-gray-500 animate-pulse">読み込み中...</div>
+        <div className="text-center py-12 text-blue-600 font-bold animate-pulse">読み込み中...</div>
       ) : (
         <>
-          <div className={`p-6 rounded-xl text-white shadow-lg mb-8 transition-colors ${balance === 0 ? 'bg-gray-500' : balance > 0 ? 'bg-blue-600' : 'bg-pink-600'}`}>
-            <p className="text-sm opacity-90 mb-1">{monthLabel}の精算</p>
-            <h2 className="text-3xl font-bold mb-2">
+          <CategoryChart expenses={expenses} />
+
+          {/* 精算パネルをリッチなグラデーションと発光表現に */}
+          <div className={`p-8 rounded-3xl text-white shadow-[0_10px_40px_rgb(0,0,0,0.2)] border border-white/20 mb-10 transition-all relative overflow-hidden ${balance === 0 ? 'bg-gradient-to-br from-gray-500 to-gray-600' : balance > 0 ? 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-blue-500/30' : 'bg-gradient-to-br from-pink-500 to-rose-600 shadow-pink-500/30'}`}>
+            <div className="absolute inset-0 bg-white/10 mix-blend-overlay pointer-events-none"></div>
+            <div className="absolute -inset-1 bg-gradient-to-r from-white/30 to-transparent blur-xl opacity-30 pointer-events-none"></div>
+            <p className="text-sm font-bold opacity-90 mb-2 relative z-10">{monthLabel}の精算</p>
+            <h2 className="text-4xl font-black mb-4 relative z-10 drop-shadow-sm">
               {balance === 0 ? '精算なし' : (
-                <>相手{balance > 0 ? 'から' : 'へ'}<span className="text-4xl mx-2 underline">{Math.abs(balance).toLocaleString()}</span>円{balance > 0 ? 'もらう' : '払う'}</>
+                <>相手{balance > 0 ? 'から' : 'へ'}<span className="mx-3 underline underline-offset-8 decoration-white/50">{Math.abs(balance).toLocaleString()}</span>円{balance > 0 ? 'もらう' : '払う'}</>
               )}
             </h2>
-            <p className="text-xs opacity-80 text-right">(合計: {totalAmount.toLocaleString()}円 / 2 = {splitAmount.toLocaleString()}円ずつ)</p>
+            <p className="text-sm font-bold opacity-80 text-right relative z-10">(合計: {totalAmount.toLocaleString()}円 / 2 = {splitAmount.toLocaleString()}円ずつ)</p>
           </div>
 
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-8">
-            <h3 className="font-bold mb-4 border-b pb-2 text-sm text-gray-500">内訳</h3>
-            <div className="flex justify-between mb-2">
-              <span className="flex items-center"><span className="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>あなた ({myUserName})</span>
-              <span className="font-bold">{totalMe.toLocaleString()}円</span>
+          <div className="bg-white/70 backdrop-blur-xl p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/40 mb-10 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/50 to-transparent pointer-events-none"></div>
+            <h3 className="font-bold mb-6 pb-3 text-gray-700 border-b border-gray-200/50 relative z-10">内訳</h3>
+            <div className="flex justify-between mb-4 relative z-10">
+              <span className="flex items-center text-gray-700 font-bold"><span className="w-4 h-4 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full mr-4 shadow-sm"></span>あなた ({myUserName})</span>
+              <span className="font-black text-xl">{totalMe.toLocaleString()}円</span>
             </div>
-            <div className="flex justify-between">
-              <span className="flex items-center"><span className="w-3 h-3 bg-pink-500 rounded-full mr-2"></span>相手</span>
-              <span className="font-bold text-pink-600">{totalPartner.toLocaleString()}円</span>
+            <div className="flex justify-between pt-4 relative z-10">
+              <span className="flex items-center text-gray-700 font-bold"><span className="w-4 h-4 bg-gradient-to-br from-pink-400 to-pink-600 rounded-full mr-4 shadow-sm"></span>相手</span>
+              <span className="font-black text-xl text-pink-600">{totalPartner.toLocaleString()}円</span>
             </div>
           </div>
 
           <div>
-            <h3 className="font-bold mb-4 text-gray-500 text-sm">{monthLabel}の履歴 ({expenses.length}件)</h3>
+            <h3 className="font-bold mb-6 text-gray-700 ml-2">{monthLabel}の履歴 ({expenses.length}件)</h3>
             {expenses.length === 0 ? (
-              <p className="text-center text-gray-400 text-sm py-4">データがありません</p>
+              <p className="text-center text-gray-500 font-bold text-sm py-12 bg-white/70 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/40">データがありません</p>
             ) : (
-              <ul className="space-y-3 pb-10">
-                {expenses.map((item) => {
+              <ul className="space-y-4">
+                {expenses.map((item, index) => {
                   const isMe = item.paid_by === myUserName;
+                  // リストアイテムもカード型で浮き上がらせる
                   return (
-                    <li key={item.id} className="bg-white p-3 rounded-lg shadow-sm flex justify-between items-center text-sm border border-gray-100">
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl bg-gray-50 p-2 rounded-lg">{getCategoryIcon(item.category)}</span>
+                    <li key={item.id} className="bg-white/80 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-white/60 flex justify-between items-center hover:bg-white hover:-translate-y-0.5 hover:shadow-md transition-all">
+                      <div className="flex items-center gap-5">
+                        <span className="text-4xl bg-gray-100/80 p-3 rounded-2xl shadow-inner">{getCategoryIcon(item.category)}</span>
                         <div>
-                          <p className="font-bold text-gray-800">{item.store_name || '店名なし'}</p>
-                          <p className="text-gray-400 text-xs">{item.purchase_date}</p>
+                          <p className="font-black text-gray-800 text-lg mb-1">{item.store_name || '店名なし'}</p>
+                          <p className="text-gray-500 text-xs font-bold">{item.purchase_date.replace(/-/g, '/')}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-right mr-1">
-                          <p className="font-bold text-lg">¥{item.amount.toLocaleString()}</p>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${isMe ? 'bg-blue-100 text-blue-600' : 'bg-pink-100 text-pink-600'}`}>{item.paid_by}</span>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="font-black text-xl mb-1">¥{item.amount.toLocaleString()}</p>
+                          <span className={`text-xs px-3 py-1.5 rounded-full font-bold shadow-sm ${isMe ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700' : 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-700'}`}>{item.paid_by}</span>
                         </div>
                         
-                        {/* ★修正: isMeがtrueの時だけ編集・削除ボタンを表示 */}
                         {isMe && (
-                          <>
-                            <button onClick={() => handleEditClick(item)} className="text-gray-300 hover:text-blue-500 p-1.5 rounded-full hover:bg-blue-50 transition">✏️</button>
-                            <button onClick={() => handleDeleteClick(item.id)} className="text-gray-300 hover:text-red-500 p-1.5 rounded-full hover:bg-red-50 transition">🗑️</button>
-                          </>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleEditClick(item)} className="text-blue-500 bg-blue-50/50 hover:bg-blue-100 p-3 rounded-full transition-all shadow-sm hover:-translate-y-0.5">✏️</button>
+                            <button onClick={() => handleDeleteClick(item.id)} className="text-red-500 bg-red-50/50 hover:bg-red-100 p-3 rounded-full transition-all shadow-sm hover:-translate-y-0.5">🗑️</button>
+                          </div>
                         )}
-
                       </div>
                     </li>
                   );

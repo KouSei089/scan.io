@@ -6,11 +6,20 @@ import Webcam from 'react-webcam';
 import { useRouter } from 'next/navigation';
 import { supabase } from './lib/supabase';
 import Modal from './components/Modal';
+import TemplateModal from './components/TemplateModal';
 
-// ユーザー情報の型定義
 type User = {
   id: number;
   name: string;
+};
+
+type Template = {
+  id: number;
+  title: string;
+  store_name: string;
+  amount: number;
+  category: string;
+  paid_by: string;
 };
 
 export default function Home() {
@@ -21,16 +30,16 @@ export default function Home() {
   
   const [myUserId, setMyUserId] = useState<string>('');
   const [myUserName, setMyUserName] = useState<string>('');
-  
-  // ★追加: 登録されている全ユーザーのリスト
   const [userList, setUserList] = useState<User[]>([]);
   
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+
   const [payer, setPayer] = useState<string>(''); 
   const [category, setCategory] = useState<string>('food');
   const [showCamera, setShowCamera] = useState(false);
   const webcamRef = useRef<Webcam>(null);
 
-  // モーダル管理
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     type: 'alert' as 'alert' | 'confirm' | 'prompt',
@@ -43,12 +52,14 @@ export default function Home() {
   const openModal = (config: any) => setModalConfig({ ...config, isOpen: true });
   const closeModal = () => setModalConfig((prev) => ({ ...prev, isOpen: false }));
 
-  // ★追加: ユーザー一覧を取得する関数
   const fetchUserList = async () => {
     const { data } = await supabase.from('users').select('id, name').order('id');
-    if (data) {
-      setUserList(data);
-    }
+    if (data) setUserList(data);
+  };
+
+  const fetchTemplates = async () => {
+    const { data } = await supabase.from('templates').select('*').order('id');
+    if (data) setTemplates(data);
   };
 
   useEffect(() => {
@@ -60,10 +71,54 @@ export default function Home() {
       setMyUserId(storedId);
       setMyUserName(storedName);
       setPayer(storedName);
-      // 起動時にユーザーリストも取得
       fetchUserList();
+      fetchTemplates();
     }
   }, [router]);
+
+  const handleUseTemplate = (tpl: Template) => {
+    openModal({
+      type: 'confirm',
+      title: '固定費の登録',
+      message: `「${tpl.title} (${tpl.amount.toLocaleString()}円)」\nを今日の日付で記録しますか？`,
+      onConfirm: async () => {
+        closeModal();
+        setLoading(true);
+
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+
+        const { error } = await supabase.from('expenses').insert({
+          store_name: tpl.store_name,
+          amount: tpl.amount,
+          purchase_date: dateStr,
+          paid_by: tpl.paid_by,
+          category: tpl.category,
+        });
+
+        setLoading(false);
+
+        if (error) {
+          alert('保存に失敗しました');
+        } else {
+          openModal({ type: 'alert', title: '保存完了', message: `${tpl.title} を記録しました！`, onConfirm: closeModal });
+        }
+      }
+    });
+  };
+
+  const handleDeleteTemplate = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if(!confirm('このテンプレートを削除しますか？')) return;
+
+    const { error } = await supabase.from('templates').delete().eq('id', id);
+    if (!error) {
+      fetchTemplates();
+    }
+  };
 
   const handleRenameClick = () => {
     openModal({
@@ -92,14 +147,10 @@ export default function Home() {
       localStorage.setItem('scan_io_user_name', newName);
       setMyUserName(newName);
       setPayer(newName);
-      
-      // ★追加: 名前を変えたらリストも再取得して更新
       await fetchUserList();
-
       setTimeout(() => {
         openModal({ type: 'alert', title: '変更完了', message: `名前を「${newName}」に変更しました`, onConfirm: closeModal });
       }, 300);
-
     } catch (err) {
       alert("名前の変更に失敗しました");
     } finally {
@@ -123,12 +174,10 @@ export default function Home() {
   const handleManualInput = () => {
     setShowCamera(false);
     setLoading(false);
-    
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
-
     setResult({
       store: '',
       date: `${yyyy}-${mm}-${dd}`,
@@ -179,33 +228,21 @@ export default function Home() {
       openModal({ type: 'alert', title: '入力エラー', message: '金額を入力してください', onConfirm: closeModal });
       return;
     }
-    
     setSaving(true);
-
-    const { error } = await supabase
-      .from('expenses')
-      .insert({
-        store_name: result.store || '店名なし',
-        amount: result.amount,
-        purchase_date: result.date,
-        paid_by: payer,
-        category: category,
-      });
-
+    const { error } = await supabase.from('expenses').insert({
+      store_name: result.store || '店名なし',
+      amount: result.amount,
+      purchase_date: result.date,
+      paid_by: payer,
+      category: category,
+    });
     setSaving(false);
-
     if (error) {
       console.error(error);
       openModal({ type: 'alert', title: 'エラー', message: '保存に失敗しました', onConfirm: closeModal });
     } else {
       setResult(null);
-      openModal({ 
-        type: 'alert', 
-        title: '保存しました！', 
-        message: '記録を保存しました。', 
-        confirmText: '閉じる',
-        onConfirm: closeModal 
-      });
+      openModal({ type: 'alert', title: '保存しました！', message: '記録を保存しました。', confirmText: '閉じる', onConfirm: closeModal });
     }
   };
 
@@ -217,10 +254,11 @@ export default function Home() {
     { id: 'other', label: 'その他', icon: '📦' },
   ];
 
-  if (!myUserName) return <div className="min-h-screen bg-gray-50"></div>;
+  if (!myUserName) return <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100"></div>;
 
   return (
-    <div className="p-8 max-w-md mx-auto min-h-screen bg-gray-50 text-gray-800 relative">
+    // 全体の背景をリッチなグラデーションに変更
+    <div className="p-8 max-w-md mx-auto min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 text-gray-800 relative pb-32">
       <Modal
         isOpen={modalConfig.isOpen}
         onClose={closeModal}
@@ -232,163 +270,151 @@ export default function Home() {
         confirmText={modalConfig.type === 'confirm' ? modalConfig.title : 'OK'}
       />
 
+      <TemplateModal
+        isOpen={isTemplateModalOpen}
+        onClose={() => setIsTemplateModalOpen(false)}
+        onUpdate={fetchTemplates}
+      />
+
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Scan.io</h1>
-        <div className="flex gap-2">
-          <Link 
-            href="/settlement" 
-            className="text-sm font-bold text-blue-600 border border-blue-600 px-3 py-1 rounded-full hover:bg-blue-50 transition"
-          >
+        <h1 className="text-3xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-gray-700 to-indigo-900 drop-shadow-sm">Scan.io</h1>
+        <div className="flex gap-3 items-center">
+          <Link href="/settlement" className="text-sm font-bold text-blue-700 bg-white/80 backdrop-blur-md border border-white/40 px-4 py-2 rounded-full hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm">
             💰 精算
           </Link>
-          <button
-             onClick={handleLogoutClick}
-             className="text-xs text-gray-400 underline"
-          >
-            ログアウト
-          </button>
+          <button onClick={handleLogoutClick} className="text-sm font-bold text-gray-500 hover:text-gray-700 transition">ログアウト</button>
         </div>
       </div>
       
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-8 flex items-center gap-3">
         <p className="text-sm font-bold text-gray-600">
-          こんにちは、<span className="text-blue-600 text-lg">{myUserName}</span> さん
+          こんにちは、<span className="text-blue-600 text-xl font-black">{myUserName}</span> さん
         </p>
-        <button 
-          onClick={handleRenameClick}
-          className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-600 transition"
-        >
-          ✏️変更
-        </button>
+        <button onClick={handleRenameClick} className="text-xs bg-white/70 backdrop-blur-md border border-white/40 hover:bg-white hover:-translate-y-0.5 px-3 py-1.5 rounded-full text-gray-600 font-bold transition-all shadow-sm">✏️変更</button>
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
-        <h2 className="block mb-4 font-bold text-gray-700">支出を記録</h2>
+      {/* カードをすりガラス風の3Dデザインに変更 */}
+      <div className="bg-white/70 backdrop-blur-xl p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/40 mb-8 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/40 to-transparent pointer-events-none"></div>
+        <h2 className="block mb-6 font-bold text-gray-800 text-xl">支出を記録</h2>
         {!showCamera ? (
-          <div className="space-y-3">
-            <button
-              onClick={() => setShowCamera(true)}
-              className="w-full py-3 bg-blue-50 text-blue-600 font-bold rounded-lg border-2 border-blue-100 hover:bg-blue-100 transition flex items-center justify-center gap-2"
-            >
-              <span>📸</span> カメラを起動する
+          <div className="space-y-4 relative z-10">
+            {/* ボタンをグラデーションと強いシャドウで立体的に */}
+            <button onClick={() => setShowCamera(true)} className="w-full py-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:-translate-y-1 transition-all flex items-center justify-center gap-2">
+              <span className="text-xl">📸</span> カメラを起動する
             </button>
-            
-            <div className="relative">
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleFileChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-              <div className="w-full py-3 bg-gray-50 text-gray-500 font-bold rounded-lg border-2 border-dashed border-gray-300 hover:bg-gray-100 transition flex items-center justify-center gap-2">
-                <span>📂</span> ファイルを選択 / スマホカメラ
+            <div className="relative group">
+              <input type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" />
+              <div className="w-full py-4 bg-white/80 backdrop-blur-md text-gray-600 font-bold rounded-2xl border-2 border-dashed border-gray-300/60 group-hover:border-blue-400/60 group-hover:bg-blue-50/50 group-hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 shadow-sm">
+                <span className="text-xl">📂</span> ファイルを選択 / スマホカメラ
               </div>
             </div>
-
-            <button
-              onClick={handleManualInput}
-              className="w-full py-3 bg-white text-gray-600 font-bold rounded-lg border border-gray-200 hover:bg-gray-50 transition flex items-center justify-center gap-2"
-            >
-              <span>✏️</span> 手入力で記録する
+            <button onClick={handleManualInput} className="w-full py-4 bg-white/80 backdrop-blur-md text-gray-700 font-bold rounded-2xl border border-white/60 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all flex items-center justify-center gap-2">
+              <span className="text-xl">✏️</span> 手入力で記録する
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="rounded-lg overflow-hidden border-2 border-blue-500 relative bg-black">
-              <Webcam
-                audio={false}
-                ref={webcamRef}
-                screenshotFormat="image/jpeg"
-                videoConstraints={{ facingMode: "environment" }}
-                className="w-full h-auto"
-              />
+          <div className="space-y-4 relative z-10">
+            <div className="rounded-2xl overflow-hidden shadow-lg relative bg-black border-4 border-white/20">
+              <Webcam audio={false} ref={webcamRef} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "environment" }} className="w-full h-auto" />
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => setShowCamera(false)} className="flex-1 py-3 bg-gray-200 text-gray-700 font-bold rounded-lg">キャンセル</button>
-              <button onClick={capture} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700">撮影する</button>
+            <div className="flex gap-3">
+              <button onClick={() => setShowCamera(false)} className="flex-1 py-4 bg-white/80 backdrop-blur-md border border-white/60 text-gray-700 font-bold rounded-2xl hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm">キャンセル</button>
+              <button onClick={capture} className="flex-1 py-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:-translate-y-1 transition-all">撮影する</button>
             </div>
           </div>
         )}
-        {loading && <p className="text-center text-blue-500 mt-4 animate-pulse">AIが解析中...</p>}
+        {loading && <p className="text-center text-blue-600 font-bold mt-6 animate-pulse relative z-10">AIが解析中...</p>}
       </div>
 
+      {!result && !showCamera && (
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-4 px-2">
+            <h2 className="font-bold text-gray-700 text-lg">よく使う登録</h2>
+            <button 
+              onClick={() => setIsTemplateModalOpen(true)} 
+              className="text-sm bg-white/70 backdrop-blur-md border border-white/40 hover:bg-white hover:-translate-y-0.5 px-4 py-2 rounded-full text-blue-600 font-bold shadow-sm transition-all"
+            >
+              ＋ 追加
+            </button>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            {templates.map((tpl) => (
+              // テンプレートボタンも立体的に
+              <button
+                key={tpl.id}
+                onClick={() => handleUseTemplate(tpl)}
+                className="bg-white/70 backdrop-blur-xl p-5 rounded-3xl shadow-[0_4px_20px_rgb(0,0,0,0.08)] border border-white/40 hover:shadow-[0_8px_25px_rgb(0,0,0,0.12)] hover:-translate-y-1 transition-all text-left relative group overflow-hidden"
+              >
+                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/50 to-transparent pointer-events-none"></div>
+                <div className="font-black text-gray-800 text-xl mb-2 relative z-10">{tpl.title}</div>
+                <div className="text-sm font-bold text-gray-500 flex justify-between relative z-10">
+                  <span className="text-blue-600">{tpl.amount.toLocaleString()}円</span>
+                  <span>{tpl.paid_by}</span>
+                </div>
+                <div 
+                  onClick={(e) => handleDeleteTemplate(tpl.id, e)}
+                  className="absolute top-3 right-3 text-gray-300 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-all z-20 hover:bg-red-50 rounded-full"
+                >
+                  ✕
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {result && (
-        <div className="bg-white p-6 rounded-xl shadow-lg border-2 border-blue-100 animate-in fade-in slide-in-from-bottom-4">
-          <h2 className="text-xl font-bold mb-4">内容の確認・編集</h2>
-          <div className="space-y-4 mb-6">
+        // 結果表示カードも3Dデザインに
+        <div className="bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.15)] border border-white/40 animate-in fade-in slide-in-from-bottom-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/40 to-transparent pointer-events-none"></div>
+          <h2 className="text-2xl font-black mb-8 relative z-10">内容の確認・編集</h2>
+          <div className="space-y-8 mb-10 relative z-10">
             <div>
-              <label className="text-xs text-gray-500 block">店名</label>
-              <input 
-                value={result.store} 
-                onChange={(e) => setResult({...result, store: e.target.value})} 
-                placeholder="店名を入力"
-                className="w-full text-lg font-bold border-b border-gray-200 focus:outline-none focus:border-blue-500" 
-              />
+              <label className="text-sm font-bold text-gray-500 block mb-2">店名</label>
+              <input value={result.store} onChange={(e) => setResult({...result, store: e.target.value})} placeholder="店名を入力" className="w-full text-xl font-bold bg-white/50 border border-white/60 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all shadow-sm" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block">日付</label>
-              <input 
-                value={result.date} 
-                type="date" 
-                onChange={(e) => setResult({...result, date: e.target.value})} 
-                className="w-full text-lg border-b border-gray-200 focus:outline-none focus:border-blue-500" 
-              />
+              <label className="text-sm font-bold text-gray-500 block mb-2">日付</label>
+              <input value={result.date} type="date" onChange={(e) => setResult({...result, date: e.target.value})} className="w-full text-xl font-bold bg-white/50 border border-white/60 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all shadow-sm" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block">金額</label>
-              <div className="flex items-end">
-                <span className="text-lg mr-1">¥</span>
-                <input 
-                  value={result.amount} 
-                  type="number" 
-                  placeholder="0"
-                  onChange={(e) => setResult({...result, amount: Number(e.target.value)})} 
-                  className="w-full text-2xl font-bold text-blue-600 border-b border-gray-200 focus:outline-none focus:border-blue-500" 
-                />
+              <label className="text-sm font-bold text-gray-500 block mb-2">金額</label>
+              <div className="flex items-center bg-white/50 border border-white/60 rounded-xl px-4 py-3 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/50 transition-all">
+                <span className="text-2xl mr-2 font-bold text-gray-400">¥</span>
+                <input value={result.amount} type="number" placeholder="0" onChange={(e) => setResult({...result, amount: Number(e.target.value)})} className="w-full text-3xl font-black text-blue-600 bg-transparent focus:outline-none" />
               </div>
             </div>
-            <div className="pt-2">
-              <label className="text-xs text-gray-500 block mb-2">カテゴリ</label>
-              <div className="flex flex-wrap gap-2">
+            <div>
+              <label className="text-sm font-bold text-gray-500 block mb-3">カテゴリ</label>
+              <div className="flex flex-wrap gap-3">
                 {categories.map((cat) => (
                   <button
                     key={cat.id}
                     onClick={() => setCategory(cat.id)}
-                    className={`px-3 py-2 rounded-lg text-sm font-bold border transition ${category === cat.id ? 'bg-yellow-100 border-yellow-400 text-yellow-800' : 'bg-white border-gray-200 text-gray-500'}`}
+                    className={`px-5 py-3 rounded-full text-sm font-bold border transition-all shadow-sm hover:-translate-y-0.5 ${category === cat.id ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white border-transparent shadow-md' : 'bg-white/70 border-white/60 text-gray-600 hover:bg-white'}`}
                   >
                     {cat.icon} {cat.label}
                   </button>
                 ))}
               </div>
             </div>
-            
-            {/* ★変更: 支払った人をプルダウン(select)に変更 */}
-            <div className="pt-2">
-              <label className="text-xs text-gray-500 block mb-2">支払った人</label>
+            <div>
+              <label className="text-sm font-bold text-gray-500 block mb-3">支払った人</label>
               <div className="relative">
-                <select
-                  value={payer}
-                  onChange={(e) => setPayer(e.target.value)}
-                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 font-bold appearance-none focus:outline-none focus:border-blue-500"
-                >
+                <select value={payer} onChange={(e) => setPayer(e.target.value)} className="w-full p-4 bg-white/50 border border-white/60 rounded-xl text-gray-700 font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all shadow-sm">
                   {userList.map((user) => (
-                    <option key={user.id} value={user.name}>
-                      {user.name}
-                    </option>
+                    <option key={user.id} value={user.name}>{user.name}</option>
                   ))}
                 </select>
-                {/* 下矢印アイコン */}
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
-                  <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                    <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
-                  </svg>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
+                  <svg className="fill-current h-6 w-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
                 </div>
               </div>
             </div>
-
           </div>
-          <button onClick={handleSave} disabled={saving} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-gray-800 transition disabled:bg-gray-400 shadow-md">
+          <button onClick={handleSave} disabled={saving} className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white py-4 rounded-2xl font-bold text-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:-translate-y-1 transition-all disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none relative z-10">
             {saving ? '保存中...' : '記録する'}
           </button>
         </div>
