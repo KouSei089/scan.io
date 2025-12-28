@@ -13,6 +13,12 @@ export const metadata: Metadata = {
   themeColor: "#ffffff",
   // スマホでの表示倍率を固定して使いやすくする
   viewport: "width=device-width, initial-scale=1, maximum-scale=1",
+  // iOS用のアイコン設定
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Scan.io",
+  },
 };
 
 export default function RootLayout({

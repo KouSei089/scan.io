@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
-import Modal from '../components/Modal'; // ★追加
+import Modal from '../components/Modal';
+import EditModal from '../components/EditModal'; // ★追加
 
 type Expense = {
   id: number;
@@ -20,7 +21,7 @@ export default function SettlementPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [myUserName, setMyUserName] = useState<string>('');
 
-  // ★追加: モーダル管理
+  // 削除用モーダル
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     type: 'confirm' as 'alert' | 'confirm',
@@ -29,7 +30,11 @@ export default function SettlementPage() {
     onConfirm: () => {},
   });
   const closeModal = () => setModalConfig((prev) => ({ ...prev, isOpen: false }));
-  
+
+  // ★追加: 編集用モーダルの状態
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<Expense | null>(null);
+
   useEffect(() => {
     const storedName = localStorage.getItem('scan_io_user_name');
     if (!storedName) {
@@ -72,7 +77,6 @@ export default function SettlementPage() {
     setCurrentMonth(newDate);
   };
 
-  // ▼▼▼ 削除処理（モーダル化） ▼▼▼
   const handleDeleteClick = (id: number) => {
     setModalConfig({
       isOpen: true,
@@ -84,13 +88,24 @@ export default function SettlementPage() {
   };
 
   const handleDelete = async (id: number) => {
-    closeModal(); // 閉じる
+    closeModal();
     const { error } = await supabase.from('expenses').delete().eq('id', id);
     if (!error) {
       setExpenses(expenses.filter(e => e.id !== id));
     } else {
       alert('削除に失敗しました');
     }
+  };
+
+  // ★追加: 編集ボタンを押した時の処理
+  const handleEditClick = (item: Expense) => {
+    setEditingItem(item);
+    setIsEditOpen(true);
+  };
+
+  // ★追加: 編集完了後の再読み込み
+  const handleUpdateComplete = () => {
+    fetchExpenses(); // データを最新にする
   };
 
   const totalMe = expenses.filter(e => e.paid_by === myUserName).reduce((sum, e) => sum + e.amount, 0);
@@ -104,7 +119,6 @@ export default function SettlementPage() {
 
   return (
     <div className="p-6 max-w-md mx-auto min-h-screen bg-gray-50 text-gray-800 relative">
-      {/* ★追加: モーダル */}
       <Modal
         isOpen={modalConfig.isOpen}
         onClose={closeModal}
@@ -113,6 +127,14 @@ export default function SettlementPage() {
         message={modalConfig.message}
         onConfirm={modalConfig.onConfirm}
         confirmText="削除する"
+      />
+
+      {/* ★追加: 編集モーダル */}
+      <EditModal 
+        isOpen={isEditOpen} 
+        onClose={() => setIsEditOpen(false)} 
+        expense={editingItem}
+        onUpdate={handleUpdateComplete}
       />
 
       <div className="flex justify-between items-center mb-6">
@@ -169,13 +191,14 @@ export default function SettlementPage() {
                           <p className="text-gray-400 text-xs">{item.purchase_date}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
+                      <div className="flex items-center gap-2">
+                        <div className="text-right mr-1">
                           <p className="font-bold text-lg">¥{item.amount.toLocaleString()}</p>
                           <span className={`text-xs px-2 py-0.5 rounded-full ${isMe ? 'bg-blue-100 text-blue-600' : 'bg-pink-100 text-pink-600'}`}>{item.paid_by}</span>
                         </div>
-                        {/* ★変更: 削除ボタンでモーダルを開く */}
-                        <button onClick={() => handleDeleteClick(item.id)} className="text-gray-300 hover:text-red-500 p-2">🗑️</button>
+                        {/* ★追加: 編集ボタン */}
+                        <button onClick={() => handleEditClick(item)} className="text-gray-300 hover:text-blue-500 p-1.5 rounded-full hover:bg-blue-50 transition">✏️</button>
+                        <button onClick={() => handleDeleteClick(item.id)} className="text-gray-300 hover:text-red-500 p-1.5 rounded-full hover:bg-red-50 transition">🗑️</button>
                       </div>
                     </li>
                   );
