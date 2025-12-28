@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Modal from '../components/Modal';
 import EditModal from '../components/EditModal';
 import CategoryChart from '../components/CategoryChart';
+import AnalysisModal from '../components/AnalysisModal';
 
 type Expense = {
   id: number;
@@ -33,6 +34,10 @@ export default function SettlementPage() {
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Expense | null>(null);
+
+  const [isAnalysisOpen, setIsAnalysisOpen] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   useEffect(() => {
     const storedName = localStorage.getItem('scan_io_user_name');
@@ -105,6 +110,25 @@ export default function SettlementPage() {
     fetchExpenses();
   };
 
+  // ★修正: テキストのインデントを削除して左に詰めました
+  const handleAnalyze = () => {
+    setIsAnalyzing(true);
+    
+    setTimeout(() => {
+      setAnalysisResult(`🚧 準備中 (Coming Soon)
+
+AI家計診断機能は、次回のアップデートで公開予定です！
+
+💡 どんな機能？
+プロのFP役のAIが、あなたの今月の家計簿データを分析します。
+「外食が多すぎるかも？」「先月より節約できてる！」といったアドバイスをくれるようになります。
+
+実装をお楽しみに！`);
+      setIsAnalysisOpen(true);
+      setIsAnalyzing(false);
+    }, 500);
+  };
+
   const totalMe = expenses.filter(e => e.paid_by === myUserName).reduce((sum, e) => sum + e.amount, 0);
   const totalPartner = expenses.filter(e => e.paid_by !== myUserName).reduce((sum, e) => sum + e.amount, 0);
   const totalAmount = totalMe + totalPartner;
@@ -112,10 +136,10 @@ export default function SettlementPage() {
   const balance = totalMe - splitAmount;
   const monthLabel = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
 
-  if (!myUserName) return <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100"></div>;
+  if (!myUserName) return <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100"></div>;
 
   return (
-    <div className="p-8 max-w-md mx-auto min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 text-gray-800 relative pb-32">
+    <div className="p-8 max-w-md mx-auto min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 text-gray-700 relative pb-32 font-medium">
       <Modal
         isOpen={modalConfig.isOpen}
         onClose={closeModal}
@@ -133,12 +157,19 @@ export default function SettlementPage() {
         onUpdate={handleUpdateComplete}
       />
 
+      <AnalysisModal 
+        isOpen={isAnalysisOpen} 
+        onClose={() => setIsAnalysisOpen(false)} 
+        analysis={analysisResult}
+        loading={isAnalyzing}
+      />
+
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 drop-shadow-sm">精算</h1>
-        <button onClick={() => window.location.href = '/'} className="text-sm font-bold text-blue-700 bg-white/80 backdrop-blur-md border border-white/40 px-4 py-2 rounded-full hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm">← 入力に戻る</button>
+        <h1 className="text-3xl font-black tracking-tight text-slate-700 drop-shadow-sm">精算</h1>
+        <button onClick={() => window.location.href = '/'} className="text-sm font-bold text-slate-600 bg-white/80 backdrop-blur-md border border-white/40 px-4 py-2 rounded-full hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm">← 入力に戻る</button>
       </div>
 
-      <div className="flex items-center justify-between bg-white/70 backdrop-blur-xl p-4 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/40 mb-8 relative overflow-hidden">
+      <div className="flex items-center justify-between bg-white/70 backdrop-blur-xl p-4 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-white/40 mb-8 relative overflow-hidden">
          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/50 to-transparent pointer-events-none"></div>
         <button onClick={() => changeMonth(-1)} className="p-4 hover:bg-white/50 rounded-full transition text-gray-500 relative z-10">◀︎ 先月</button>
         <span className="font-black text-2xl text-gray-700 relative z-10">{monthLabel}</span>
@@ -146,13 +177,20 @@ export default function SettlementPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-blue-600 font-bold animate-pulse">読み込み中...</div>
+        <div className="text-center py-12 text-slate-600 font-bold animate-pulse">読み込み中...</div>
       ) : (
         <>
           <CategoryChart expenses={expenses} />
 
-          {/* 精算パネルをリッチなグラデーションと発光表現に */}
-          <div className={`p-8 rounded-3xl text-white shadow-[0_10px_40px_rgb(0,0,0,0.2)] border border-white/20 mb-10 transition-all relative overflow-hidden ${balance === 0 ? 'bg-gradient-to-br from-gray-500 to-gray-600' : balance > 0 ? 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-blue-500/30' : 'bg-gradient-to-br from-pink-500 to-rose-600 shadow-pink-500/30'}`}>
+          <button 
+            onClick={handleAnalyze}
+            className="w-full mb-8 py-4 bg-white/70 backdrop-blur-xl border border-white/40 rounded-3xl shadow-sm text-slate-600 font-bold hover:bg-white hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 group"
+          >
+            <span className="text-2xl group-hover:scale-110 transition-transform">🤖</span>
+            <span>AI家計診断を受ける</span>
+          </button>
+
+          <div className={`p-8 rounded-3xl text-white shadow-[0_10px_40px_rgb(0,0,0,0.15)] border border-white/20 mb-10 transition-all relative overflow-hidden ${balance === 0 ? 'bg-gradient-to-br from-gray-500 to-gray-600' : balance > 0 ? 'bg-gradient-to-br from-slate-500 to-slate-600 shadow-slate-500/20' : 'bg-gradient-to-br from-rose-400 to-rose-500 shadow-rose-500/20'}`}>
             <div className="absolute inset-0 bg-white/10 mix-blend-overlay pointer-events-none"></div>
             <div className="absolute -inset-1 bg-gradient-to-r from-white/30 to-transparent blur-xl opacity-30 pointer-events-none"></div>
             <p className="text-sm font-bold opacity-90 mb-2 relative z-10">{monthLabel}の精算</p>
@@ -164,28 +202,27 @@ export default function SettlementPage() {
             <p className="text-sm font-bold opacity-80 text-right relative z-10">(合計: {totalAmount.toLocaleString()}円 / 2 = {splitAmount.toLocaleString()}円ずつ)</p>
           </div>
 
-          <div className="bg-white/70 backdrop-blur-xl p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/40 mb-10 relative overflow-hidden">
+          <div className="bg-white/70 backdrop-blur-xl p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-white/40 mb-10 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/50 to-transparent pointer-events-none"></div>
             <h3 className="font-bold mb-6 pb-3 text-gray-700 border-b border-gray-200/50 relative z-10">内訳</h3>
             <div className="flex justify-between mb-4 relative z-10">
-              <span className="flex items-center text-gray-700 font-bold"><span className="w-4 h-4 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full mr-4 shadow-sm"></span>あなた ({myUserName})</span>
+              <span className="flex items-center text-gray-700 font-bold"><span className="w-4 h-4 bg-gradient-to-br from-slate-400 to-slate-600 rounded-full mr-4 shadow-sm"></span>あなた ({myUserName})</span>
               <span className="font-black text-xl">{totalMe.toLocaleString()}円</span>
             </div>
             <div className="flex justify-between pt-4 relative z-10">
-              <span className="flex items-center text-gray-700 font-bold"><span className="w-4 h-4 bg-gradient-to-br from-pink-400 to-pink-600 rounded-full mr-4 shadow-sm"></span>相手</span>
-              <span className="font-black text-xl text-pink-600">{totalPartner.toLocaleString()}円</span>
+              <span className="flex items-center text-gray-700 font-bold"><span className="w-4 h-4 bg-gradient-to-br from-rose-400 to-rose-500 rounded-full mr-4 shadow-sm"></span>相手</span>
+              <span className="font-black text-xl text-rose-600">{totalPartner.toLocaleString()}円</span>
             </div>
           </div>
 
           <div>
             <h3 className="font-bold mb-6 text-gray-700 ml-2">{monthLabel}の履歴 ({expenses.length}件)</h3>
             {expenses.length === 0 ? (
-              <p className="text-center text-gray-500 font-bold text-sm py-12 bg-white/70 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/40">データがありません</p>
+              <p className="text-center text-gray-500 font-bold text-sm py-12 bg-white/70 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-white/40">データがありません</p>
             ) : (
               <ul className="space-y-4">
                 {expenses.map((item, index) => {
                   const isMe = item.paid_by === myUserName;
-                  // リストアイテムもカード型で浮き上がらせる
                   return (
                     <li key={item.id} className="bg-white/80 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-white/60 flex justify-between items-center hover:bg-white hover:-translate-y-0.5 hover:shadow-md transition-all">
                       <div className="flex items-center gap-5">
@@ -198,13 +235,13 @@ export default function SettlementPage() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <p className="font-black text-xl mb-1">¥{item.amount.toLocaleString()}</p>
-                          <span className={`text-xs px-3 py-1.5 rounded-full font-bold shadow-sm ${isMe ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700' : 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-700'}`}>{item.paid_by}</span>
+                          <span className={`text-xs px-3 py-1.5 rounded-full font-bold shadow-sm ${isMe ? 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700' : 'bg-gradient-to-r from-rose-50 to-rose-100 text-rose-700'}`}>{item.paid_by}</span>
                         </div>
                         
                         {isMe && (
                           <div className="flex gap-2">
-                            <button onClick={() => handleEditClick(item)} className="text-blue-500 bg-blue-50/50 hover:bg-blue-100 p-3 rounded-full transition-all shadow-sm hover:-translate-y-0.5">✏️</button>
-                            <button onClick={() => handleDeleteClick(item.id)} className="text-red-500 bg-red-50/50 hover:bg-red-100 p-3 rounded-full transition-all shadow-sm hover:-translate-y-0.5">🗑️</button>
+                            <button onClick={() => handleEditClick(item)} className="text-slate-500 bg-slate-100/50 hover:bg-slate-200 p-3 rounded-full transition-all shadow-sm hover:-translate-y-0.5">✏️</button>
+                            <button onClick={() => handleDeleteClick(item.id)} className="text-rose-500 bg-rose-50/50 hover:bg-rose-100 p-3 rounded-full transition-all shadow-sm hover:-translate-y-0.5">🗑️</button>
                           </div>
                         )}
                       </div>
