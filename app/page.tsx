@@ -3,7 +3,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from './lib/supabase';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Camera, Upload, Check, Loader2, ArrowRight, Receipt, LogOut, User } from 'lucide-react';
+// ★変更: Check を削除し、X を追加
+import { Camera, Upload, Loader2, ArrowRight, Receipt, LogOut, User, X } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 import Modal from './components/Modal';
 
@@ -15,78 +16,107 @@ export default function Home() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ステート管理
   const [myUserName, setMyUserName] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  
-  // 保存用にファイルの実体を保持
   const [fileToUpload, setFileToUpload] = useState<File | null>(null);
 
-  // 入力フォーム
   const [storeName, setStoreName] = useState('');
   const [amount, setAmount] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [category, setCategory] = useState('food');
 
-  // モーダル制御
   const [modalConfig, setModalConfig] = useState({
-    isOpen: false,
-    type: 'confirm' as 'alert' | 'confirm',
-    title: '',
-    message: '',
-    onConfirm: () => {},
+    isOpen: false, type: 'confirm' as 'alert' | 'confirm', title: '', message: '', onConfirm: () => {},
   });
   const closeModal = () => setModalConfig((prev) => ({ ...prev, isOpen: false }));
 
-  // 初回ロード時のログインチェック
   useEffect(() => {
     const storedName = localStorage.getItem('scan_io_user_name');
-    if (!storedName) {
-      router.push('/login');
-    } else {
-      setMyUserName(storedName);
-    }
+    if (!storedName) router.push('/login');
+    else setMyUserName(storedName);
   }, [router]);
 
-  // ログアウトボタンクリック時の処理（モーダルを開く）
   const handleLogoutClick = () => {
     setModalConfig({
-      isOpen: true,
-      type: 'confirm',
-      title: 'ログアウト',
-      message: '本当にログアウトしますか？',
-      onConfirm: executeLogout,
+      isOpen: true, type: 'confirm', title: 'ログアウト', message: '本当にログアウトしますか？', onConfirm: executeLogout,
     });
   };
 
-  // 実際のログアウト処理
   const executeLogout = () => {
     closeModal();
     localStorage.removeItem('scan_io_user_name');
     router.push('/login');
   };
 
-  // ファイル選択時の処理
+  // 画像削除ボタンの処理
+  const handleClearImage = () => {
+    setPreviewUrl(null);
+    setFileToUpload(null);
+    if(fileInputRef.current) fileInputRef.current.value = '';
+    // 解析結果もクリアするかはお好みで（今回は残します）
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setFileToUpload(file);
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    await scanReceipt(file);
+    // ★改善: 選択した瞬間にローディングを開始する
+    setIsScanning(true);
+
+    try {
+      let processFile = file;
+
+      // Dynamic Import for HEIC conversion
+      if (file.name.toLowerCase().endsWith('.heic') || file.type === 'image/heic') {
+        try {
+          console.log('HEIC検出: 変換処理開始');
+          const heic2any = (await import('heic2any')).default;
+          
+          const convertedBlob = await heic2any({
+            blob: file,
+            toType: 'image/jpeg',
+            quality: 0.8
+          });
+          
+          const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+          
+          processFile = new File(
+            [blob], 
+            file.name.replace(/\.heic$/i, '.jpg'), 
+            { type: 'image/jpeg' }
+          );
+        } catch (e) {
+          console.error('HEIC変換エラー:', e);
+          alert('画像の形式変換に失敗しました。');
+          setIsScanning(false); // エラー時はローディングを止める
+          return;
+        }
+      }
+
+      setFileToUpload(processFile);
+      const url = URL.createObjectURL(processFile);
+      setPreviewUrl(url);
+      
+      // 続けてAI解析へ
+      await scanReceipt(processFile);
+
+    } catch (error) {
+      console.error('File processing error:', error);
+      setIsScanning(false);
+    }
   };
 
-  // AIによるレシート解析
   const scanReceipt = async (file: File) => {
     if (!apiKey) {
       alert('APIキーが設定されていません');
+      setIsScanning(false);
       return;
     }
 
-    setIsScanning(true);
+    // setIsScanning(true); // ★ここは既にtrueなので削除しても良いが、念のため残してもOK
+
     try {
       const base64Data = await new Promise<string>((resolve) => {
         const reader = new FileReader();
@@ -97,8 +127,7 @@ export default function Home() {
         reader.readAsDataURL(file);
       });
 
-      // 本番環境でも安定して動作するモデルを指定
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       
       const prompt = `
         このレシート画像を解析して、以下の情報をJSON形式で抽出してください。
@@ -126,42 +155,58 @@ export default function Home() {
 
     } catch (error) {
       console.error('Scan error:', error);
-      alert('解析に失敗しました。手動で入力してください。');
+      // AI失敗でも画像は残るのでアラートは出さなくても良いが、出すなら控えめに
     } finally {
+      // ★ここで初めてローディングを終了
       setIsScanning(false);
     }
   };
 
-  // 画像アップロード処理（Supabase）
   const uploadImageToSupabase = async (file: File) => {
     try {
+      console.log('1. 処理開始:', file.name, file.type, file.size);
+      
       const options = {
         maxSizeMB: 0.5,
         maxWidthOrHeight: 1200,
         useWebWorker: true,
+        fileType: 'image/jpeg' 
       };
-      const compressedFile = await imageCompression(file, options);
       
-      const fileExt = file.name.split('.').pop();
+      const compressedFile = await imageCompression(file, options);
+      console.log('2. 圧縮完了:', compressedFile.size, compressedFile.type);
+
+      const fileExt = 'jpg';
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
+      console.log('3. アップロード開始:', filePath);
+
+      const { data, error: uploadError } = await supabase.storage
         .from('receipts')
-        .upload(filePath, compressedFile);
+        .upload(filePath, compressedFile, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: 'image/jpeg',
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('❌ Supabase Upload Error Object:', uploadError);
+        throw uploadError;
+      }
 
-      const { data } = supabase.storage.from('receipts').getPublicUrl(filePath);
-      return data.publicUrl;
+      console.log('4. アップロード成功:', data);
 
-    } catch (error) {
-      console.error('Upload failed:', error);
+      const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(filePath);
+      return urlData.publicUrl;
+
+    } catch (error: any) {
+      console.error('❌ Upload Process Failed:', error);
+      if (error.message) alert(`アップロードエラー: ${error.message}`);
       return null;
     }
   };
 
-  // 保存ボタンクリック時の処理
   const handleSave = async () => {
     if (!storeName || !amount || !purchaseDate) {
       alert('必須項目を入力してください');
@@ -185,7 +230,6 @@ export default function Home() {
 
       if (error) throw error;
       
-      // フォームのリセット
       setStoreName('');
       setAmount('');
       setCategory('food');
@@ -207,26 +251,11 @@ export default function Home() {
 
   return (
     <div className="p-8 max-w-md mx-auto min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 text-gray-700 relative pb-32 font-medium">
-      
-      {/* 共通モーダル */}
-      <Modal 
-        isOpen={modalConfig.isOpen} 
-        onClose={closeModal} 
-        type={modalConfig.type} 
-        title={modalConfig.title} 
-        message={modalConfig.message} 
-        onConfirm={modalConfig.onConfirm} 
-        confirmText="ログアウト" 
-      />
+      <Modal isOpen={modalConfig.isOpen} onClose={closeModal} type={modalConfig.type} title={modalConfig.title} message={modalConfig.message} onConfirm={modalConfig.onConfirm} confirmText="ログアウト" />
 
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-black tracking-tight text-slate-700 drop-shadow-sm flex items-center gap-2">
-          Scan.io
-        </h1>
-        <button 
-          onClick={() => router.push('/settlement')}
-          className="text-sm font-bold text-slate-600 bg-white/80 backdrop-blur-md border border-white/40 px-5 py-2.5 rounded-full hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm flex items-center gap-2 group"
-        >
+        <h1 className="text-3xl font-black tracking-tight text-slate-700 drop-shadow-sm flex items-center gap-2">Scan.io</h1>
+        <button onClick={() => router.push('/settlement')} className="text-sm font-bold text-slate-600 bg-white/80 backdrop-blur-md border border-white/40 px-5 py-2.5 rounded-full hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm flex items-center gap-2 group">
           <span>精算へ</span>
           <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
         </button>
@@ -237,34 +266,31 @@ export default function Home() {
         <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
         
         {previewUrl ? (
-          <div className="relative mb-4">
+          <div className="relative mb-4 group/preview">
             <img src={previewUrl} alt="Preview" className="w-full h-48 object-cover rounded-2xl shadow-inner border border-white/60" />
+            {/* ★変更: バツ印ボタンに変更 */}
             <button 
-              onClick={() => { setPreviewUrl(null); setFileToUpload(null); if(fileInputRef.current) fileInputRef.current.value = ''; }}
-              className="absolute top-2 right-2 bg-slate-800/80 text-white p-2 rounded-full hover:bg-slate-900 transition-colors backdrop-blur-md"
+              onClick={handleClearImage} 
+              className="absolute top-2 right-2 bg-black/50 text-white/90 p-1.5 rounded-full hover:bg-rose-500 transition-colors backdrop-blur-sm"
+              title="画像を削除"
             >
-              <Check size={16} />
+              <X size={16} strokeWidth={2.5} />
             </button>
           </div>
         ) : (
           <div className="py-10 border-2 border-dashed border-slate-300/70 rounded-2xl mb-4 bg-slate-50/50 flex flex-col items-center justify-center gap-4 transition-colors group-hover:bg-white/60 group-hover:border-slate-400/50">
-            <div className="p-4 bg-white rounded-full shadow-sm">
-               <Receipt size={32} className="text-slate-400" />
-            </div>
+            <div className="p-4 bg-white rounded-full shadow-sm"><Receipt size={32} className="text-slate-400" /></div>
             <p className="text-slate-500 text-sm font-bold">レシートを撮影して自動入力</p>
             <div className="flex gap-3 mt-2">
-               <button onClick={() => fileInputRef.current?.click()} className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-xs font-bold text-slate-600 flex items-center gap-2 hover:bg-slate-50 transition-all">
-                 <Camera size={16} className="text-blue-500" /> カメラ
-               </button>
-               <button onClick={() => fileInputRef.current?.click()} className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-xs font-bold text-slate-600 flex items-center gap-2 hover:bg-slate-50 transition-all">
-                 <Upload size={16} className="text-slate-500" /> アップロード
-               </button>
+               <button onClick={() => fileInputRef.current?.click()} className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-xs font-bold text-slate-600 flex items-center gap-2 hover:bg-slate-50 transition-all"><Camera size={16} className="text-blue-500" /> カメラ</button>
+               <button onClick={() => fileInputRef.current?.click()} className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-xs font-bold text-slate-600 flex items-center gap-2 hover:bg-slate-50 transition-all"><Upload size={16} className="text-slate-500" /> アップロード</button>
             </div>
           </div>
         )}
-
+        
+        {/* ローディング表示 */}
         {isScanning && (
-          <div className="absolute inset-0 bg-white/90 backdrop-blur-md flex flex-col items-center justify-center z-10 animate-in fade-in duration-300">
+          <div className="absolute inset-0 bg-white/90 backdrop-blur-md flex flex-col items-center justify-center z-10 animate-in fade-in duration-200">
             <Loader2 className="animate-spin text-blue-500 mb-3" size={40} />
             <p className="font-bold text-slate-600 animate-pulse">AIが解析中...</p>
           </div>
@@ -273,102 +299,40 @@ export default function Home() {
 
       <div className="bg-white/70 backdrop-blur-xl p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-white/40 mb-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/50 to-transparent pointer-events-none"></div>
-        <h2 className="text-lg font-black text-slate-700 mb-6 flex items-center gap-2 relative z-10">
-          <span className="w-1.5 h-6 bg-slate-700 rounded-full"></span>
-          支出の記録
-        </h2>
-
+        <h2 className="text-lg font-black text-slate-700 mb-6 flex items-center gap-2 relative z-10"><span className="w-1.5 h-6 bg-slate-700 rounded-full"></span>支出の記録</h2>
         <div className="space-y-6 relative z-10">
           <div>
             <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">店名 / 内容</label>
-            <input
-              type="text"
-              value={storeName}
-              onChange={(e) => setStoreName(e.target.value)}
-              placeholder="コンビニ, スーパーなど"
-              className="w-full p-4 rounded-2xl bg-white/60 border border-slate-200/60 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:bg-white font-bold text-slate-700 placeholder:text-slate-300 transition-all shadow-sm"
-            />
+            <input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="コンビニ, スーパーなど" className="w-full p-4 rounded-2xl bg-white/60 border border-slate-200/60 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:bg-white font-bold text-slate-700 placeholder:text-slate-300 transition-all shadow-sm" />
           </div>
-
           <div className="flex gap-4">
             <div className="flex-1">
               <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">金額 (円)</label>
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0"
-                className="w-full p-4 rounded-2xl bg-white/60 border border-slate-200/60 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:bg-white font-black text-xl text-slate-700 placeholder:text-slate-300 transition-all text-right shadow-sm tracking-tight"
-              />
+              <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="w-full p-4 rounded-2xl bg-white/60 border border-slate-200/60 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:bg-white font-black text-xl text-slate-700 placeholder:text-slate-300 transition-all text-right shadow-sm tracking-tight" />
             </div>
             <div className="w-[140px]">
               <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">日付</label>
-              <input
-                type="date"
-                value={purchaseDate}
-                onChange={(e) => setPurchaseDate(e.target.value)}
-                className="w-full p-4 rounded-2xl bg-white/60 border border-slate-200/60 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:bg-white font-bold text-slate-600 text-sm h-[60px] shadow-sm text-center"
-              />
+              <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} className="w-full p-4 rounded-2xl bg-white/60 border border-slate-200/60 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:bg-white font-bold text-slate-600 text-sm h-[60px] shadow-sm text-center" />
             </div>
           </div>
-
           <div>
             <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">カテゴリ</label>
             <div className="grid grid-cols-5 gap-2">
-              {[
-                { id: 'food', icon: '🥦', label: '食費' },
-                { id: 'daily', icon: '🧻', label: '日用品' },
-                { id: 'eatout', icon: '🍻', label: '外食' },
-                { id: 'transport', icon: '🚃', label: '交通' },
-                { id: 'other', icon: '📦', label: '他' },
-              ].map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setCategory(cat.id)}
-                  className={`flex flex-col items-center justify-center py-3 rounded-2xl border transition-all active:scale-95 ${
-                    category === cat.id
-                      ? 'bg-slate-700 text-white border-slate-700 shadow-md transform -translate-y-1'
-                      : 'bg-white/60 border-transparent text-slate-400 hover:bg-white hover:shadow-sm'
-                  }`}
-                >
-                  <span className="text-xl mb-1 filter drop-shadow-sm">{cat.icon}</span>
-                  <span className={`text-[10px] font-bold ${category === cat.id ? 'text-white' : 'text-slate-400'}`}>{cat.label}</span>
-                </button>
+              {[{ id: 'food', icon: '🥦', label: '食費' }, { id: 'daily', icon: '🧻', label: '日用品' }, { id: 'eatout', icon: '🍻', label: '外食' }, { id: 'transport', icon: '🚃', label: '交通' }, { id: 'other', icon: '📦', label: '他' }].map((cat) => (
+                <button key={cat.id} onClick={() => setCategory(cat.id)} className={`flex flex-col items-center justify-center py-3 rounded-2xl border transition-all active:scale-95 ${category === cat.id ? 'bg-slate-700 text-white border-slate-700 shadow-md transform -translate-y-1' : 'bg-white/60 border-transparent text-slate-400 hover:bg-white hover:shadow-sm'}`}><span className="text-xl mb-1 filter drop-shadow-sm">{cat.icon}</span><span className={`text-[10px] font-bold ${category === cat.id ? 'text-white' : 'text-slate-400'}`}>{cat.label}</span></button>
               ))}
             </div>
           </div>
         </div>
-
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="mt-8 w-full py-4 bg-slate-800 text-white font-black text-lg rounded-2xl shadow-lg shadow-slate-300 hover:bg-slate-700 hover:-translate-y-0.5 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 relative z-10"
-        >
-          {isSaving ? <Loader2 className="animate-spin" /> : <Check strokeWidth={3} />}
-          <span>記録する</span>
-        </button>
+        <button onClick={handleSave} disabled={isSaving} className="mt-8 w-full py-4 bg-slate-800 text-white font-black text-lg rounded-2xl shadow-lg shadow-slate-300 hover:bg-slate-700 hover:-translate-y-0.5 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 relative z-10">{isSaving ? <Loader2 className="animate-spin" /> : <Check strokeWidth={3} />}<span>記録する</span></button>
       </div>
 
       <div className="mt-8 flex flex-col items-center gap-3">
-        {/* ユーザーバッジ */}
         <div className="flex items-center gap-3 pl-2 pr-4 py-1.5 bg-white/60 backdrop-blur-md rounded-full border border-white/40 shadow-sm">
-          <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center shadow-inner">
-            <User size={16} className="text-slate-500" />
-          </div>
-          <div className="flex flex-col items-start leading-none">
-            <span className="text-[10px] text-slate-400 font-bold mb-0.5">ログイン中</span>
-            <span className="text-sm font-black text-slate-600">{myUserName}</span>
-          </div>
+          <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center shadow-inner"><User size={16} className="text-slate-500" /></div>
+          <div className="flex flex-col items-start leading-none"><span className="text-[10px] text-slate-400 font-bold mb-0.5">ログイン中</span><span className="text-sm font-black text-slate-600">{myUserName}</span></div>
         </div>
-
-        {/* ログアウトボタン */}
-        <button 
-          onClick={handleLogoutClick}
-          className="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-rose-50"
-        >
-          <LogOut size={12} />
-          ログアウト
-        </button>
+        <button onClick={handleLogoutClick} className="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-rose-50"><LogOut size={12} />ログアウト</button>
       </div>
     </div>
   );
