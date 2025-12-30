@@ -3,8 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from './lib/supabase';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-// ★変更: Check を削除し、X を追加
-import { Camera, Upload, Loader2, ArrowRight, Receipt, LogOut, User, X } from 'lucide-react';
+import { Camera, Upload, Check, Loader2, ArrowRight, Receipt, LogOut, User, X } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 import Modal from './components/Modal';
 
@@ -90,7 +89,7 @@ export default function Home() {
         } catch (e) {
           console.error('HEIC変換エラー:', e);
           alert('画像の形式変換に失敗しました。');
-          setIsScanning(false); // エラー時はローディングを止める
+          setIsScanning(false);
           return;
         }
       }
@@ -114,8 +113,6 @@ export default function Home() {
       setIsScanning(false);
       return;
     }
-
-    // setIsScanning(true); // ★ここは既にtrueなので削除しても良いが、念のため残してもOK
 
     try {
       const base64Data = await new Promise<string>((resolve) => {

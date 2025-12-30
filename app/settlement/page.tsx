@@ -6,8 +6,7 @@ import Modal from '../components/Modal';
 import EditModal from '../components/EditModal';
 import CategoryChart from '../components/CategoryChart';
 import AnalysisModal from '../components/AnalysisModal';
-// ★追加: Paperclip (画像用), Sparkles (スマート精算用)
-import { Smile, MessageCircle, Send, Pencil, Trash2, X, Check, Paperclip, Sparkles } from 'lucide-react';
+import { Smile, MessageCircle, Send, Pencil, Trash2, X, Check, Paperclip, Sparkles, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
 
 type Comment = {
   id: string;
@@ -26,7 +25,6 @@ type Expense = {
   category: string | null;
   reactions: { [key: string]: string } | null;
   comments: Comment[] | null;
-  // ★追加: 画像URL
   receipt_url: string | null;
 };
 
@@ -57,6 +55,13 @@ const generateId = () => {
   return Date.now().toString(36) + Math.random().toString(36).substring(2);
 };
 
+// ★追加: 日時フォーマット関数
+const formatDateTime = (isoString: string) => {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+};
+
 export default function SettlementPage() {
   const router = useRouter();
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -64,9 +69,8 @@ export default function SettlementPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [myUserName, setMyUserName] = useState<string>('');
   
-  // ★追加: スマート精算モードのON/OFF管理
   const [useSmartSplit, setUseSmartSplit] = useState(false);
-  const SCAN_BONUS_PER_ITEM = 50; // 1回のスキャンにつき50円の手当
+  const SCAN_BONUS_PER_ITEM = 50; 
 
   const [activePickerId, setActivePickerId] = useState<number | null>(null);
   const [activeCommentId, setActiveCommentId] = useState<number | null>(null);
@@ -84,6 +88,10 @@ export default function SettlementPage() {
   const [isAnalysisOpen, setIsAnalysisOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // ★追加: 表示制御用のステート
+  const [visibleCount, setVisibleCount] = useState(10);
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     const storedName = localStorage.getItem('scan_io_user_name');
@@ -119,7 +127,14 @@ export default function SettlementPage() {
     const firstDayStr = toYMD(new Date(year, month, 1));
     const lastDayStr = toYMD(new Date(year, month + 1, 0));
     
-    const { data, error } = await supabase.from('expenses').select('*').gte('purchase_date', firstDayStr).lte('purchase_date', lastDayStr).order('purchase_date', { ascending: false });
+    // ★変更: created_at の降順（新しい順）で取得
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('*')
+      .gte('purchase_date', firstDayStr)
+      .lte('purchase_date', lastDayStr)
+      .order('created_at', { ascending: false }); // 登録順にソート
+
     if (error) console.error(error); else setExpenses(data || []);
     setLoading(false);
   };
@@ -130,6 +145,7 @@ export default function SettlementPage() {
     const newDate = new Date(currentMonth);
     newDate.setMonth(newDate.getMonth() + amount);
     setCurrentMonth(newDate);
+    setVisibleCount(10); // 月を変えたら表示件数をリセット
   };
 
   const handleDeleteClick = (id: number) => {
@@ -146,7 +162,6 @@ export default function SettlementPage() {
   const handleEditClick = (item: Expense) => { setEditingItem(item); setIsEditOpen(true); };
   const handleUpdateComplete = () => { fetchExpenses(); };
 
-  // ★維持: AI家計診断機能
   const handleAnalyze = () => {
     setIsAnalyzing(true);
     setTimeout(() => {
@@ -239,34 +254,30 @@ export default function SettlementPage() {
     return `${d.getMonth() + 1}/${d.getDate()}`;
   };
 
-  // ★追加: スマート精算ロジック
+  // --- 計算ロジック ---
   const totalMe = expenses.filter(e => e.paid_by === myUserName).reduce((sum, e) => sum + e.amount, 0);
   const totalPartner = expenses.filter(e => e.paid_by !== myUserName).reduce((sum, e) => sum + e.amount, 0);
   const totalAmount = totalMe + totalPartner;
-  const splitAmount = Math.round(totalAmount / 2); // 単純折半額（参考用）
+  const splitAmount = Math.round(totalAmount / 2); // 1人あたり
   
-  // 通常の精算額（端数そのまま）
-  const basicBalance = totalMe - (totalAmount / 2); // プラスなら受け取る側
+  // 基本的な差額 (自分が多く払っていればプラス)
+  const basicBalance = totalMe - splitAmount; 
 
-  // スキャン回数の集計
   const myScanCount = expenses.filter(e => e.paid_by === myUserName).length;
   const partnerScanCount = expenses.filter(e => e.paid_by !== myUserName).length;
-  const scanDiff = myScanCount - partnerScanCount; // プラスなら自分が多くスキャンした
-  const scanBonus = scanDiff * SCAN_BONUS_PER_ITEM; // 受け取るべき手当（マイナスなら払う）
+  const scanDiff = myScanCount - partnerScanCount; 
+  const scanBonus = scanDiff * SCAN_BONUS_PER_ITEM; 
 
-  // スマート精算額の計算（手当加算 ＆ 100円単位丸め）
+  // スマート精算の計算
   const smartBalanceRaw = basicBalance + scanBonus;
 
-  // 100円単位への丸め関数 (正負を考慮)
   const roundTo100 = (num: number) => {
       const abs = Math.abs(num);
       const rounded = Math.floor(abs / 100) * 100;
       return num >= 0 ? rounded : -rounded;
   };
 
-  // 最終的な精算額（モードによって切り替え）
   const finalBalance = useSmartSplit ? roundTo100(smartBalanceRaw) : Math.round(basicBalance);
-
   const monthLabel = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
 
   if (!myUserName) return <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100"></div>;
@@ -295,13 +306,12 @@ export default function SettlementPage() {
         <>
           <CategoryChart expenses={expenses} />
 
-          {/* ★維持: AI家計診断ボタン */}
           <button onClick={handleAnalyze} className="w-full mb-8 py-4 bg-white/70 backdrop-blur-xl border border-white/40 rounded-3xl shadow-sm text-slate-600 font-bold hover:bg-white hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 group">
             <span className="text-2xl group-hover:scale-110 transition-transform">🤖</span>
             <span>AI家計診断を受ける</span>
           </button>
 
-          {/* ★追加: スマート精算切り替えスイッチ */}
+          {/* スマート精算切り替え */}
           <div className="mb-6 bg-white/60 backdrop-blur-md p-4 rounded-3xl border border-white/40 shadow-sm flex items-center justify-between">
               <div className="flex items-center gap-3">
                   <div className={`p-2 rounded-full ${useSmartSplit ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>
@@ -329,30 +339,59 @@ export default function SettlementPage() {
               )}
             </h2>
 
-            {/* ★追加: 手当の内訳表示 */}
-            {useSmartSplit && scanDiff !== 0 && (
-                <div className="text-xs font-bold bg-white/20 p-3 rounded-xl backdrop-blur-md mb-2 relative z-10">
-                    <p className="mb-1">🎁 スキャン感謝手当: {scanBonus > 0 ? '+' : ''}{scanBonus.toLocaleString()}円</p>
-                    <p className="opacity-80">
-                        (あなた: {myScanCount}回 vs 相手: {partnerScanCount}回 = 差{scanDiff > 0 ? '+' : ''}{scanDiff}回 × {SCAN_BONUS_PER_ITEM}円)
-                    </p>
+            {/* ★改善: 計算の内訳（アコーディオン） */}
+            <div className="mt-4 bg-black/20 rounded-xl overflow-hidden relative z-10">
+              <button 
+                onClick={() => setShowDetails(!showDetails)}
+                className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold hover:bg-white/5 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <HelpCircle size={14} />
+                  計算の内訳を見る
+                </span>
+                {showDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              
+              {showDetails && (
+                <div className="px-4 pb-4 pt-1 text-xs space-y-2 opacity-90 border-t border-white/10">
+                  <div className="flex justify-between border-b border-white/10 py-1">
+                    <span>全体の支出</span>
+                    <span className="font-mono">{totalAmount.toLocaleString()} 円</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/10 py-1">
+                    <span>1人あたり (÷2)</span>
+                    <span className="font-mono">{splitAmount.toLocaleString()} 円</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/10 py-1">
+                    <span>あなたの立替済</span>
+                    <span className="font-mono">{totalMe.toLocaleString()} 円</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/10 py-1 text-emerald-200">
+                    <span>基本の差額</span>
+                    <span className="font-mono">{basicBalance > 0 ? '+' : ''}{basicBalance.toLocaleString()} 円</span>
+                  </div>
+                  {useSmartSplit && (
+                    <>
+                      <div className="flex justify-between border-b border-white/10 py-1 text-amber-200">
+                        <span>スキャン手当 ({scanDiff > 0 ? '+' : ''}{scanDiff}回)</span>
+                        <span className="font-mono">{scanBonus > 0 ? '+' : ''}{scanBonus.toLocaleString()} 円</span>
+                      </div>
+                      <div className="pt-2 text-[10px] text-center opacity-70">
+                        ※ 100円未満を端数調整しています
+                      </div>
+                    </>
+                  )}
                 </div>
-            )}
-            
-            <p className="text-sm font-bold opacity-80 text-right relative z-10">
-                {useSmartSplit 
-                    ? `(元々の差額: ${basicBalance > 0 ? '+' : ''}${Math.round(basicBalance).toLocaleString()}円)` 
-                    : `(合計: ${totalAmount.toLocaleString()}円 / 2)`}
-            </p>
+              )}
+            </div>
           </div>
 
           <div className="bg-white/70 backdrop-blur-xl p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-white/40 mb-10 relative overflow-hidden">
-            <h3 className="font-bold mb-6 pb-3 text-gray-700 border-b border-gray-200/50 relative z-10">内訳</h3>
+            <h3 className="font-bold mb-6 pb-3 text-gray-700 border-b border-gray-200/50 relative z-10">支出の内訳</h3>
             <div className="flex justify-between mb-4 relative z-10">
               <span className="flex items-center text-gray-700 font-bold"><span className="w-4 h-4 bg-gradient-to-br from-slate-400 to-slate-600 rounded-full mr-4 shadow-sm"></span>あなた ({myUserName})</span>
               <div className="text-right">
                   <span className="font-black text-xl block">{totalMe.toLocaleString()}円</span>
-                  {/* ★追加: スキャン回数表示 */}
                   <span className="text-xs text-gray-400 font-bold">スキャン: {myScanCount}回</span>
               </div>
             </div>
@@ -370,184 +409,200 @@ export default function SettlementPage() {
             {expenses.length === 0 ? (
               <p className="text-center text-gray-500 font-bold text-sm py-12 bg-white/70 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-white/40">データがありません</p>
             ) : (
-              <ul className="space-y-4">
-                {expenses.map((item) => {
-                  const isMe = item.paid_by === myUserName;
-                  const reactions = item.reactions || {};
-                  const reactionEntries = Object.entries(reactions);
-                  const comments = item.comments || [];
-                  const isCommentOpen = activeCommentId === item.id;
+              <>
+                <ul className="space-y-4">
+                  {/* ★変更: visibleCount分だけ表示 */}
+                  {expenses.slice(0, visibleCount).map((item) => {
+                    const isMe = item.paid_by === myUserName;
+                    const reactions = item.reactions || {};
+                    const reactionEntries = Object.entries(reactions);
+                    const comments = item.comments || [];
+                    const isCommentOpen = activeCommentId === item.id;
 
-                  return (
-                    <li key={item.id} className="bg-white/80 backdrop-blur-md p-5 rounded-3xl shadow-sm border border-white/60 hover:bg-white transition-all">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-4">
-                          <span className="text-3xl bg-gray-100/80 p-3 rounded-2xl shadow-inner">{getCategoryIcon(item.category)}</span>
-                          <div>
-                            <div className="flex items-center gap-2">
-                                <p className="font-black text-gray-800 text-lg mb-0.5">{item.store_name || '店名なし'}</p>
-                                {/* ★追加: 画像URLがある場合、クリップアイコンを表示 */}
-                                {item.receipt_url && (
-                                    <a href={item.receipt_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 p-1 bg-blue-50 rounded-full transition-colors" onClick={(e) => e.stopPropagation()}>
-                                        <Paperclip size={14} />
-                                    </a>
+                    return (
+                      <li key={item.id} className="bg-white/80 backdrop-blur-md p-5 rounded-3xl shadow-sm border border-white/60 hover:bg-white transition-all">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center gap-4">
+                            <span className="text-3xl bg-gray-100/80 p-3 rounded-2xl shadow-inner">{getCategoryIcon(item.category)}</span>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                  <p className="font-black text-gray-800 text-lg mb-0.5">{item.store_name || '店名なし'}</p>
+                                  {item.receipt_url && (
+                                      <a href={item.receipt_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 p-1 bg-blue-50 rounded-full transition-colors" onClick={(e) => e.stopPropagation()}>
+                                          <Paperclip size={14} />
+                                      </a>
+                                  )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {/* ★変更: 登録日時を表示 */}
+                                {item.created_at && (
+                                  <p className="text-gray-400 text-[10px] font-mono font-bold">
+                                    {formatDateTime(item.created_at)}
+                                  </p>
                                 )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-gray-500 text-xs font-bold">{formatDate(item.purchase_date)}</p>
-                              {item.created_at && <p className="text-gray-300 text-[10px]">(登録: {formatDate(item.created_at)})</p>}
+                              </div>
                             </div>
                           </div>
+                          <div className="text-right">
+                            <p className="font-black text-xl mb-1 text-slate-700">¥{item.amount.toLocaleString()}</p>
+                            <span className={`text-xs px-3 py-1 rounded-full font-bold shadow-sm ${isMe ? 'bg-slate-100 text-slate-600' : 'bg-rose-50 text-rose-600'}`}>{item.paid_by}</span>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-black text-xl mb-1 text-slate-700">¥{item.amount.toLocaleString()}</p>
-                          <span className={`text-xs px-3 py-1 rounded-full font-bold shadow-sm ${isMe ? 'bg-slate-100 text-slate-600' : 'bg-rose-50 text-rose-600'}`}>{item.paid_by}</span>
-                        </div>
-                      </div>
 
-                      <div className="flex items-center gap-2 mt-2 relative min-h-[32px] flex-wrap">
-                        {reactionEntries.map(([user, reactionId]) => {
-                          const isMyReaction = user === myUserName;
-                          const reactionType = REACTION_TYPES.find(r => r.id === reactionId);
-                          if (!reactionType) return null;
-                          return (
-                            <button
-                              key={user}
-                              onClick={(e) => { e.stopPropagation(); handleReaction(item, reactionId); }}
-                              className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm leading-none shadow-sm transition-all border group relative overflow-hidden ${
-                                isMyReaction 
-                                  ? `${reactionType.bg} ${reactionType.border} ${reactionType.text} ring-1 ring-white`
-                                  : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100 grayscale hover:grayscale-0'
-                              }`}
+                        <div className="flex items-center gap-2 mt-2 relative min-h-[32px] flex-wrap">
+                          {reactionEntries.map(([user, reactionId]) => {
+                            const isMyReaction = user === myUserName;
+                            const reactionType = REACTION_TYPES.find(r => r.id === reactionId);
+                            if (!reactionType) return null;
+                            return (
+                              <button
+                                key={user}
+                                onClick={(e) => { e.stopPropagation(); handleReaction(item, reactionId); }}
+                                className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm leading-none shadow-sm transition-all border group relative overflow-hidden ${
+                                  isMyReaction 
+                                    ? `${reactionType.bg} ${reactionType.border} ${reactionType.text} ring-1 ring-white`
+                                    : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100 grayscale hover:grayscale-0'
+                                }`}
+                              >
+                                <img src={reactionType.src} alt="reaction" className="w-5 h-5 object-contain block drop-shadow-sm transition-transform active:scale-90" />
+                                <span className="text-[10px] font-bold">{user}</span>
+                              </button>
+                            );
+                          })}
+
+                          <div className="relative">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setActivePickerId(activePickerId === item.id ? null : item.id); }}
+                              className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 border border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors leading-none"
                             >
-                              <img src={reactionType.src} alt="reaction" className="w-5 h-5 object-contain block drop-shadow-sm transition-transform active:scale-90" />
-                              <span className="text-[10px] font-bold">{user}</span>
+                              <Smile size={18} strokeWidth={2.5} />
                             </button>
-                          );
-                        })}
+                            {activePickerId === item.id && (
+                              <div className="absolute left-0 bottom-full mb-2 bg-white/90 backdrop-blur-md rounded-2xl shadow-xl border border-slate-100 p-2 flex gap-2 z-50 animate-in slide-in-from-bottom-2 fade-in duration-200">
+                                {REACTION_TYPES.map((type) => (
+                                  <button
+                                    key={type.id}
+                                    onClick={(e) => { e.stopPropagation(); handleReaction(item, type.id); }}
+                                    className="w-10 h-10 flex items-center justify-center rounded-xl transition-all hover:scale-125 active:scale-95 hover:bg-slate-50"
+                                  >
+                                    <img src={type.src} alt={type.id} className="w-8 h-8 object-contain drop-shadow-sm" />
+                                  </button>
+                                ))}
+                                <div className="absolute left-3 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white"></div>
+                              </div>
+                            )}
+                          </div>
 
-                        <div className="relative">
                           <button 
-                            onClick={(e) => { e.stopPropagation(); setActivePickerId(activePickerId === item.id ? null : item.id); }}
-                            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 border border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors leading-none"
+                            onClick={() => setActiveCommentId(isCommentOpen ? null : item.id)}
+                            className={`w-8 h-8 flex items-center justify-center rounded-full border transition-colors leading-none ${
+                              comments.length > 0 
+                                ? 'bg-blue-50 border-blue-200 text-blue-500' 
+                                : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                            }`}
                           >
-                            <Smile size={18} strokeWidth={2.5} />
+                            <MessageCircle size={18} strokeWidth={2.5} className={comments.length > 0 ? 'fill-blue-100' : ''} />
+                            {comments.length > 0 && <span className="sr-only">{comments.length}</span>}
                           </button>
-                          {activePickerId === item.id && (
-                            <div className="absolute left-0 bottom-full mb-2 bg-white/90 backdrop-blur-md rounded-2xl shadow-xl border border-slate-100 p-2 flex gap-2 z-50 animate-in slide-in-from-bottom-2 fade-in duration-200">
-                              {REACTION_TYPES.map((type) => (
-                                <button
-                                  key={type.id}
-                                  onClick={(e) => { e.stopPropagation(); handleReaction(item, type.id); }}
-                                  className="w-10 h-10 flex items-center justify-center rounded-xl transition-all hover:scale-125 active:scale-95 hover:bg-slate-50"
-                                >
-                                  <img src={type.src} alt={type.id} className="w-8 h-8 object-contain drop-shadow-sm" />
-                                </button>
-                              ))}
-                              <div className="absolute left-3 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white"></div>
+
+                          {isMe && (
+                            <div className="ml-auto flex gap-3">
+                              <button onClick={() => handleEditClick(item)} className="text-xs font-bold text-slate-400 hover:text-blue-500 transition-colors">編集</button>
+                              <button onClick={() => handleDeleteClick(item.id)} className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors">削除</button>
                             </div>
                           )}
                         </div>
 
-                        <button 
-                          onClick={() => setActiveCommentId(isCommentOpen ? null : item.id)}
-                          className={`w-8 h-8 flex items-center justify-center rounded-full border transition-colors leading-none ${
-                            comments.length > 0 
-                              ? 'bg-blue-50 border-blue-200 text-blue-500' 
-                              : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600'
-                          }`}
-                        >
-                          <MessageCircle size={18} strokeWidth={2.5} className={comments.length > 0 ? 'fill-blue-100' : ''} />
-                          {comments.length > 0 && <span className="sr-only">{comments.length}</span>}
-                        </button>
+                        {/* コメントエリア */}
+                        {isCommentOpen && (
+                          <div className="comment-area mt-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2 fade-in duration-200">
+                            {comments.length > 0 ? (
+                              <ul className="space-y-4 mb-4">
+                                {comments.map((comment, i) => {
+                                  const isMyComment = comment.user === myUserName;
+                                  const isEditing = editingCommentId === comment.id;
 
-                        {isMe && (
-                          <div className="ml-auto flex gap-3">
-                            <button onClick={() => handleEditClick(item)} className="text-xs font-bold text-slate-400 hover:text-blue-500 transition-colors">編集</button>
-                            <button onClick={() => handleDeleteClick(item.id)} className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors">削除</button>
+                                  return (
+                                    <li key={comment.id || i} className={`flex flex-col ${isMyComment ? 'items-end' : 'items-start'}`}>
+                                      {isEditing ? (
+                                        <div className="w-full max-w-[90%] flex gap-2 items-end">
+                                          <textarea
+                                            value={editingText}
+                                            onChange={(e) => setEditingText(e.target.value)}
+                                            className="flex-1 bg-white border border-blue-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none h-20"
+                                          />
+                                          <div className="flex flex-col gap-2">
+                                            <button onClick={() => handleSaveEditComment(item)} className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600"><Check size={14} /></button>
+                                            <button onClick={() => setEditingCommentId(null)} className="p-2 bg-slate-200 text-slate-500 rounded-full hover:bg-slate-300"><X size={14} /></button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <div className={`px-4 py-2.5 rounded-2xl text-sm max-w-[85%] whitespace-pre-wrap leading-relaxed shadow-sm relative group ${
+                                            isMyComment 
+                                              ? 'bg-blue-500 text-white rounded-tr-none' 
+                                              : 'bg-slate-100 text-slate-700 rounded-tl-none'
+                                          }`}>
+                                            {comment.text}
+                                            {isMyComment && (
+                                              <div className="absolute -left-16 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => handleDeleteCommentClick(item, comment.id)} className="p-1.5 bg-rose-100 text-rose-500 rounded-full hover:bg-rose-200"><Trash2 size={12} /></button>
+                                                <button onClick={() => handleStartEditComment(comment)} className="p-1.5 bg-blue-100 text-blue-500 rounded-full hover:bg-blue-200"><Pencil size={12} /></button>
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="flex gap-2 mt-1 px-1">
+                                            <span className="text-[10px] font-bold text-slate-400">{comment.user}</span>
+                                            <span className="text-[10px] text-slate-300">{formatDate(comment.timestamp)}</span>
+                                          </div>
+                                        </>
+                                      )}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            ) : (
+                              <p className="text-xs text-slate-400 text-center mb-4">まだコメントはありません。会話を始めましょう！</p>
+                            )}
+
+                            <div className="flex gap-2 items-end">
+                              <textarea
+                                value={commentText}
+                                onChange={(e) => setCommentText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                    handleCommentSubmit(item);
+                                  }
+                                }}
+                                placeholder="コメントを入力..."
+                                className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all resize-none h-12 min-h-[48px] max-h-32"
+                              />
+                              <button 
+                                onClick={() => handleCommentSubmit(item)}
+                                disabled={!commentText.trim()}
+                                className="w-10 h-10 mb-1 flex items-center justify-center rounded-full bg-blue-500 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600 transition-all active:scale-95"
+                              >
+                                <Send size={18} strokeWidth={2.5} className="ml-0.5" />
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-slate-300 text-center mt-2">Ctrl + Enter で送信</p>
                           </div>
                         )}
-                      </div>
+                      </li>
+                    );
+                  })}
+                </ul>
 
-                      {/* コメントエリア */}
-                      {isCommentOpen && (
-                        <div className="comment-area mt-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2 fade-in duration-200">
-                          {comments.length > 0 ? (
-                            <ul className="space-y-4 mb-4">
-                              {comments.map((comment, i) => {
-                                const isMyComment = comment.user === myUserName;
-                                const isEditing = editingCommentId === comment.id;
-
-                                return (
-                                  <li key={comment.id || i} className={`flex flex-col ${isMyComment ? 'items-end' : 'items-start'}`}>
-                                    {isEditing ? (
-                                      <div className="w-full max-w-[90%] flex gap-2 items-end">
-                                        <textarea
-                                          value={editingText}
-                                          onChange={(e) => setEditingText(e.target.value)}
-                                          className="flex-1 bg-white border border-blue-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none h-20"
-                                        />
-                                        <div className="flex flex-col gap-2">
-                                          <button onClick={() => handleSaveEditComment(item)} className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600"><Check size={14} /></button>
-                                          <button onClick={() => setEditingCommentId(null)} className="p-2 bg-slate-200 text-slate-500 rounded-full hover:bg-slate-300"><X size={14} /></button>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <div className={`px-4 py-2.5 rounded-2xl text-sm max-w-[85%] whitespace-pre-wrap leading-relaxed shadow-sm relative group ${
-                                          isMyComment 
-                                            ? 'bg-blue-500 text-white rounded-tr-none' 
-                                            : 'bg-slate-100 text-slate-700 rounded-tl-none'
-                                        }`}>
-                                          {comment.text}
-                                          {isMyComment && (
-                                            <div className="absolute -left-16 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                              <button onClick={() => handleDeleteCommentClick(item, comment.id)} className="p-1.5 bg-rose-100 text-rose-500 rounded-full hover:bg-rose-200"><Trash2 size={12} /></button>
-                                              <button onClick={() => handleStartEditComment(comment)} className="p-1.5 bg-blue-100 text-blue-500 rounded-full hover:bg-blue-200"><Pencil size={12} /></button>
-                                            </div>
-                                          )}
-                                        </div>
-                                        <div className="flex gap-2 mt-1 px-1">
-                                          <span className="text-[10px] font-bold text-slate-400">{comment.user}</span>
-                                          <span className="text-[10px] text-slate-300">{formatDate(comment.timestamp)}</span>
-                                        </div>
-                                      </>
-                                    )}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          ) : (
-                            <p className="text-xs text-slate-400 text-center mb-4">まだコメントはありません。会話を始めましょう！</p>
-                          )}
-
-                          <div className="flex gap-2 items-end">
-                            <textarea
-                              value={commentText}
-                              onChange={(e) => setCommentText(e.target.value)}
-                              onKeyDown={(e) => {
-                                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                                  handleCommentSubmit(item);
-                                }
-                              }}
-                              placeholder="コメントを入力..."
-                              className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all resize-none h-12 min-h-[48px] max-h-32"
-                            />
-                            <button 
-                              onClick={() => handleCommentSubmit(item)}
-                              disabled={!commentText.trim()}
-                              className="w-10 h-10 mb-1 flex items-center justify-center rounded-full bg-blue-500 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600 transition-all active:scale-95"
-                            >
-                              <Send size={18} strokeWidth={2.5} className="ml-0.5" />
-                            </button>
-                          </div>
-                          <p className="text-[10px] text-slate-300 text-center mt-2">Ctrl + Enter で送信</p>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+                {/* ★追加: もっと見るボタン */}
+                {expenses.length > visibleCount && (
+                  <button 
+                    onClick={() => setVisibleCount(prev => prev + 10)}
+                    className="w-full py-3 mt-4 text-xs font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-1"
+                  >
+                    もっと見る <ChevronDown size={14} />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </>
