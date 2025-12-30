@@ -12,7 +12,10 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 export default function Home() {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // ★修正1: input用のrefを2つに分ける
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const [myUserName, setMyUserName] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -51,7 +54,9 @@ export default function Home() {
   const handleClearImage = () => {
     setPreviewUrl(null);
     setFileToUpload(null);
-    if(fileInputRef.current) fileInputRef.current.value = '';
+    // inputの中身もクリアしておく
+    if(cameraInputRef.current) cameraInputRef.current.value = '';
+    if(galleryInputRef.current) galleryInputRef.current.value = '';
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,7 +74,7 @@ export default function Home() {
           const convertedBlob = await heic2any({
             blob: file,
             toType: 'image/jpeg',
-            quality: 0.7 // 変換時も少し画質を落とす
+            quality: 0.7 
           });
           
           const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
@@ -107,8 +112,6 @@ export default function Home() {
     }
 
     try {
-      // 解析用にはある程度の画質が必要なので、元のファイルを送る
-      // (または、解析専用に軽くリサイズしても良いが、今回は精度優先)
       const base64Data = await new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -155,17 +158,16 @@ export default function Home() {
     try {
       console.log('1. 処理開始:', file.size / 1024, 'KB');
       
-      // ★修正: 容量節約のための強力な圧縮設定
       const options = {
-        maxSizeMB: 0.1,        // 目標: 100KB以下
-        maxWidthOrHeight: 1024,// 長辺1024pxまで縮小 (レシートが読めるギリギリ)
+        maxSizeMB: 0.1,        
+        maxWidthOrHeight: 1024,
         useWebWorker: true,
         fileType: 'image/jpeg',
-        initialQuality: 0.6,   // 画質60% (文字は読めるレベル)
+        initialQuality: 0.6,   
       };
       
       const compressedFile = await imageCompression(file, options);
-      console.log('2. 圧縮完了:', compressedFile.size / 1024, 'KB'); // 圧縮後のサイズ確認用
+      console.log('2. 圧縮完了:', compressedFile.size / 1024, 'KB');
 
       const fileExt = 'jpg';
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
@@ -218,7 +220,10 @@ export default function Home() {
       setCategory('food');
       setPreviewUrl(null);
       setFileToUpload(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      
+      // クリア処理も両方のrefに対応
+      if(cameraInputRef.current) cameraInputRef.current.value = '';
+      if(galleryInputRef.current) galleryInputRef.current.value = '';
       
       alert('記録しました！');
 
@@ -233,7 +238,6 @@ export default function Home() {
   if (!myUserName) return <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100"></div>;
 
   return (
-    // ★レスポンシブ調整: px-4 py-6 でスマホ対応。 max-w-md は維持。
     <div className="px-4 py-6 sm:p-8 max-w-md mx-auto min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 text-gray-700 relative pb-32 font-medium">
       <Modal isOpen={modalConfig.isOpen} onClose={closeModal} type={modalConfig.type} title={modalConfig.title} message={modalConfig.message} onConfirm={modalConfig.onConfirm} confirmText="ログアウト" />
 
@@ -247,7 +251,25 @@ export default function Home() {
 
       <div className="bg-white/70 backdrop-blur-xl p-4 sm:p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-white/40 mb-6 sm:mb-8 relative overflow-hidden text-center group transition-all hover:shadow-[0_8px_40px_rgb(0,0,0,0.12)]">
         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/50 to-transparent pointer-events-none"></div>
-        <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+        
+        {/* ★修正2: inputを2つ用意する */}
+        {/* カメラ起動用 (capture="environment" あり) */}
+        <input 
+          type="file" 
+          accept="image/*" 
+          capture="environment" 
+          ref={cameraInputRef} 
+          onChange={handleFileChange} 
+          className="hidden" 
+        />
+        {/* アルバム選択用 (captureなし) */}
+        <input 
+          type="file" 
+          accept="image/*" 
+          ref={galleryInputRef} 
+          onChange={handleFileChange} 
+          className="hidden" 
+        />
         
         {previewUrl ? (
           <div className="relative mb-4 group/preview">
@@ -265,8 +287,9 @@ export default function Home() {
             <div className="p-3 sm:p-4 bg-white rounded-full shadow-sm"><Receipt size={28} className="text-slate-400 sm:w-8 sm:h-8" /></div>
             <p className="text-slate-500 text-xs sm:text-sm font-bold">レシートを撮影して自動入力</p>
             <div className="flex gap-2 sm:gap-3 mt-2">
-               <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 sm:px-5 sm:py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-xs font-bold text-slate-600 flex items-center gap-2 hover:bg-slate-50 transition-all"><Camera size={14} className="text-blue-500 sm:w-4 sm:h-4" /> カメラ</button>
-               <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 sm:px-5 sm:py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-xs font-bold text-slate-600 flex items-center gap-2 hover:bg-slate-50 transition-all"><Upload size={14} className="text-slate-500 sm:w-4 sm:h-4" /> 選択</button>
+               {/* ★修正3: ボタンによってクリックするinputを変える */}
+               <button onClick={() => cameraInputRef.current?.click()} className="px-4 py-2 sm:px-5 sm:py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-xs font-bold text-slate-600 flex items-center gap-2 hover:bg-slate-50 transition-all"><Camera size={14} className="text-blue-500 sm:w-4 sm:h-4" /> カメラ</button>
+               <button onClick={() => galleryInputRef.current?.click()} className="px-4 py-2 sm:px-5 sm:py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-xs font-bold text-slate-600 flex items-center gap-2 hover:bg-slate-50 transition-all"><Upload size={14} className="text-slate-500 sm:w-4 sm:h-4" /> 選択</button>
             </div>
           </div>
         )}
@@ -292,7 +315,6 @@ export default function Home() {
               <label className="block text-xs font-bold text-slate-400 mb-1.5 ml-1">金額 (円)</label>
               <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="w-full p-3 sm:p-4 rounded-2xl bg-white/60 border border-slate-200/60 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:bg-white font-black text-lg sm:text-xl text-slate-700 placeholder:text-slate-300 transition-all text-right shadow-sm tracking-tight" />
             </div>
-            {/* ★レスポンシブ調整: 幅を固定140pxから 35% に変更 */}
             <div className="w-[35%] min-w-[120px]">
               <label className="block text-xs font-bold text-slate-400 mb-1.5 ml-1">日付</label>
               <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} className="w-full p-3 sm:p-4 rounded-2xl bg-white/60 border border-slate-200/60 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:bg-white font-bold text-slate-600 text-xs sm:text-sm h-[52px] sm:h-[60px] shadow-sm text-center" />
