@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from './lib/supabase';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+// ★修正: ScanLineなどの不要なアイコンは削除
 import { Camera, Upload, Check, Loader2, ArrowRight, Receipt, LogOut, User, X } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 import Modal from './components/Modal';
@@ -27,13 +28,12 @@ export default function Home() {
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [category, setCategory] = useState('food');
 
-  // ★修正: confirmText (ボタンの文字) をステートに追加
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     type: 'confirm' as 'alert' | 'confirm',
     title: '',
     message: '',
-    confirmText: 'OK', // デフォルト値
+    confirmText: 'OK',
     onConfirm: () => {},
   });
   const closeModal = () => setModalConfig((prev) => ({ ...prev, isOpen: false }));
@@ -50,7 +50,7 @@ export default function Home() {
       type: 'confirm',
       title: 'ログアウト',
       message: '本当にログアウトしますか？',
-      confirmText: 'ログアウト', // ボタンの文字を指定
+      confirmText: 'ログアウト',
       onConfirm: executeLogout,
     });
   };
@@ -115,7 +115,6 @@ export default function Home() {
 
   const scanReceipt = async (file: File) => {
     if (!apiKey) {
-      // ここは開発者向けエラーなのでalertのままでOK
       alert('APIキーが設定されていません');
       setIsScanning(false);
       return;
@@ -131,7 +130,7 @@ export default function Home() {
         reader.readAsDataURL(file);
       });
 
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       
       const prompt = `
         このレシート画像を解析して、以下の情報をJSON形式で抽出してください。
@@ -204,8 +203,6 @@ export default function Home() {
 
   const handleSave = async () => {
     if (!storeName || !amount || !purchaseDate) {
-      // バリデーションエラーもモーダルで見せたい場合はここを変えてもOK
-      // 今回はシンプルにalertのままにしておきます
       alert('必須項目を入力してください');
       return;
     }
@@ -236,10 +233,9 @@ export default function Home() {
       if(cameraInputRef.current) cameraInputRef.current.value = '';
       if(galleryInputRef.current) galleryInputRef.current.value = '';
       
-      // ★修正: 成功時のモーダル表示
       setModalConfig({
         isOpen: true,
-        type: 'alert', // alertタイプならキャンセルボタンが出ない（Modalの実装による）
+        type: 'alert', 
         title: '登録完了 ✨',
         message: '支出を記録しました！',
         confirmText: 'OK',
@@ -259,7 +255,6 @@ export default function Home() {
   return (
     <div className="px-4 py-6 sm:p-8 max-w-md mx-auto min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 text-gray-700 relative pb-32 font-medium">
       
-      {/* ★修正: confirmText を渡すように変更 */}
       <Modal 
         isOpen={modalConfig.isOpen} 
         onClose={closeModal} 
@@ -271,7 +266,11 @@ export default function Home() {
       />
 
       <div className="flex justify-between items-center mb-6 sm:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-700 drop-shadow-sm flex items-center gap-2">Scan.io</h1>
+        {/* ▼ 修正: アイコンを削除し、テキストのみでシンプルに */}
+        <h1 className="text-xl sm:text-2xl font-black text-slate-700 tracking-tight">
+          レシートスキャン
+        </h1>
+
         <button onClick={() => router.push('/settlement')} className="text-xs sm:text-sm font-bold text-slate-600 bg-white/80 backdrop-blur-md border border-white/40 px-4 py-2 sm:px-5 sm:py-2.5 rounded-full hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm flex items-center gap-2 group">
           <span>精算へ</span>
           <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />

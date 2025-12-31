@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
+import { LogIn, UserPlus, User, Loader2, ArrowRight } from 'lucide-react';
 
 type User = {
   id: number;
@@ -51,51 +52,83 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 text-gray-800">
-      <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-sm">
-        <h1 className="text-2xl font-bold mb-6 text-center">利用者を選択</h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-gray-200 flex items-center justify-center p-4 relative overflow-hidden text-gray-800">
+      {/* 背景の装飾 */}
+      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-blue-200/40 rounded-full blur-[100px] pointer-events-none"></div>
+      <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-slate-200/40 rounded-full blur-[100px] pointer-events-none"></div>
 
-        {loading ? (
-          <p className="text-center">読み込み中...</p>
-        ) : (
-          <div className="space-y-4">
-            {/* 登録済みのユーザーボタン */}
-            {users.map((user) => (
-              <button
-                key={user.id}
-                onClick={() => handleLogin(user)}
-                className="w-full py-4 text-lg font-bold bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-xl hover:bg-blue-100 transition flex items-center justify-center"
-              >
-                {user.name} として利用
-              </button>
-            ))}
+      <div className="bg-white/80 backdrop-blur-md p-8 rounded-3xl shadow-xl border border-white/40 w-full max-w-md relative overflow-hidden relative z-10">
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/60 to-transparent pointer-events-none"></div>
+        
+        {/* ロゴブロック */}
+        <div className="flex flex-col items-center justify-center mb-8 relative z-10">
+          <img 
+            src="/icon-512.png" 
+            alt="Kurasel Icon" 
+            className="w-20 h-20 rounded-3xl shadow-lg mb-4 object-cover" 
+          />
+          <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-none mb-1">
+            Kurasel
+          </h1>
+          <p className="text-sm font-bold text-slate-400 tracking-widest">
+            暮らしと精算
+          </p>
+        </div>
 
-            {/* 2名未満なら登録フォームを表示 */}
-            {users.length < 2 && (
-              <div className="mt-8 pt-6 border-t border-gray-100">
-                <p className="text-sm text-gray-500 mb-2">
-                  {users.length === 0 ? 'まずは1人目を登録' : 'パートナーを登録'}
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="名前を入力 (例: Taro)"
-                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
-                  />
-                  <button
-                    onClick={handleRegister}
-                    disabled={!newName}
-                    className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold disabled:bg-gray-400"
-                  >
-                    登録
-                  </button>
+        <div className="relative z-10">
+          <h2 className="text-center font-bold text-slate-500 mb-4 text-sm">利用者を選択してください</h2>
+
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="animate-spin text-slate-400" size={32} />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* 登録済みのユーザーボタン */}
+              {users.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => handleLogin(user)}
+                  className="w-full py-4 px-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-400 hover:-translate-y-0.5 transition-all flex items-center justify-between group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 group-hover:bg-blue-50 group-hover:text-blue-500 transition-colors">
+                      <User size={20} strokeWidth={2.5} />
+                    </div>
+                    <span className="text-lg font-bold text-slate-700 group-hover:text-slate-900">{user.name}</span>
+                  </div>
+                  <ArrowRight size={20} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
+                </button>
+              ))}
+
+              {/* 2名未満なら登録フォームを表示 */}
+              {users.length < 2 && (
+                <div className="mt-8 pt-6 border-t border-slate-200/60">
+                  <p className="text-xs font-bold text-slate-400 mb-3 text-center">
+                    {users.length === 0 ? 'まずは1人目を登録' : 'パートナーを登録'}
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="名前 (例: Taro)"
+                      className="flex-1 border border-slate-200 rounded-xl px-4 py-3 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-200 font-bold text-slate-700 text-sm transition-all"
+                    />
+                    <button
+                      onClick={handleRegister}
+                      disabled={!newName.trim()}
+                      className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors flex items-center gap-2 shadow-lg shadow-slate-200"
+                    >
+                      <UserPlus size={18} />
+                      <span className="text-sm">登録</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

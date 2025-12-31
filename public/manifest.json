@@ -1,6 +1,6 @@
 {
-  "name": "Scan.io",
-  "short_name": "Scan.io",
+  "name": "Kurasel - 生活と精算",
+  "short_name": "Kurasel",
   "description": "レシート割り勘アプリ",
   "start_url": "/",
   "display": "standalone",

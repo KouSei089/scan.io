@@ -17,8 +17,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Scan.io | スマート家計簿",
-  description: "レシートスキャンで割り勘を自動化するWebアプリ",
+  title: "Kurasel | 生活と精算",
+  description: "レシートを撮るだけ。AIが解析して、生活費をスマートに精算。",
   manifest: "/manifest.json", 
   appleWebApp: {
     capable: true,
