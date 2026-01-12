@@ -94,3 +94,65 @@ create table monthly_settlements (
 
 ### 3. Storage設定
 SupabaseのStorageメニューで receipts という名前のPublic Bucketを作成してください。
+
+## 🏗️ システム構成図 (Architecture)
+
+```mermaid
+graph TD
+    User((User))
+    subgraph "Frontend (PWA)"
+        UI[Next.js App Router]
+        Logic[Business Logic]
+    end
+    
+    subgraph "AI Service"
+        Gemini[Google Gemini 1.5 Flash]
+    end
+    
+    subgraph "Backend (Supabase)"
+        DB[(PostgreSQL)]
+        Storage[Storage Bucket]
+    end
+
+    User -->|📸 Take Photo| UI
+    UI -->|🖼️ Image Data| Gemini
+    Gemini -->|📝 JSON Extraction| Logic
+    Logic -->|💾 Insert Data| DB
+    Logic -->|☁️ Upload Image| Storage
+    DB -->|📊 Fetch History| UI
+```
+
+### 2. ER図 (Entity Relationship Diagram)
+
+データベースの設計図です。`expenses`（支出）と `monthly_settlements`（精算ステータス）の関係などを定義します。
+
+```mermaid
+erDiagram
+    USERS {
+        int id PK
+        string name "User Name"
+    }
+    
+    EXPENSES {
+        bigint id PK
+        date purchase_date
+        text store_name
+        integer amount
+        text category "food, daily, etc"
+        text paid_by "User Name"
+        text receipt_url
+        jsonb reactions
+        jsonb comments
+        timestamp created_at
+    }
+
+    MONTHLY_SETTLEMENTS {
+        text month PK "YYYY-MM"
+        boolean is_paid
+        boolean is_received
+        timestamp updated_at
+    }
+
+    USERS ||--o{ EXPENSES : "creates"
+    EXPENSES }|..|{ MONTHLY_SETTLEMENTS : "belongs to month"
+```
