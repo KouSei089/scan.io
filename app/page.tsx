@@ -135,7 +135,7 @@ export default function Home() {
         reader.readAsDataURL(file);
       });
 
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       
       const prompt = `
         このレシート画像を解析して、以下の情報をJSON形式で抽出してください。

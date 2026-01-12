@@ -2,29 +2,61 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
+import { GoogleGenerativeAI } from '@google/generative-ai'; // AI機能用
 import Modal from '../components/Modal';
 import EditModal from '../components/EditModal';
 import CategoryChart from '../components/CategoryChart';
 import AnalysisModal from '../components/AnalysisModal';
-import { Smile, MessageCircle, Send, Pencil, Trash2, X, Check, Paperclip, Sparkles, ChevronDown, ChevronUp, HelpCircle, ArrowLeft, CheckCircle2, Clock, Lock, ShieldCheck } from 'lucide-react';
+import { Smile, MessageCircle, Send, Pencil, Trash2, X, Check, Paperclip, Sparkles, ChevronDown, ChevronUp, HelpCircle, ArrowLeft, CheckCircle2, Clock, Lock, ToggleLeft, ToggleRight } from 'lucide-react';
 import { DEMO_EXPENSES, DEMO_STATUS } from '../lib/demoData';
 
-// ... (型定義や定数はそのまま) ...
-type Comment = { id: string; user: string; text: string; timestamp: string; };
-type Expense = { id: number; store_name: string; amount: number; purchase_date: string; created_at: string; paid_by: string; category: string | null; reactions: { [key: string]: string } | null; comments: Comment[] | null; receipt_url: string | null; };
-type MonthlyStatus = { is_paid: boolean; is_received: boolean; };
+// Gemini APIの初期化
+const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '');
+
+type Comment = {
+  id: string;
+  user: string;
+  text: string;
+  timestamp: string;
+};
+
+type Expense = {
+  id: number;
+  store_name: string;
+  amount: number;
+  purchase_date: string;
+  created_at: string;
+  paid_by: string;
+  category: string | null;
+  reactions: { [key: string]: string } | null;
+  comments: Comment[] | null;
+  receipt_url: string | null;
+};
+
+type MonthlyStatus = {
+  is_paid: boolean;
+  is_received: boolean;
+};
+
 const REACTION_TYPES = [
   { id: 'heart', src: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Red%20Heart.png', bg: 'bg-rose-50', border: 'border-rose-200', text: 'text-rose-600' },
   { id: 'good', src: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Hand%20gestures/Thumbs%20Up.png', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-600' },
   { id: 'party', src: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Party%20Popper.png', bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-600' },
   { id: 'please', src: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Hand%20gestures/Folded%20Hands.png', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-600' },
 ];
+
 const generateId = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
-const formatDateTime = (isoString: string) => { if (!isoString) return ''; const d = new Date(isoString); return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; };
+
+const formatDateTime = (isoString: string) => {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+};
 
 export default function SettlementPage() {
   const router = useRouter();
-  // ▼変更: 初期値はfalseにし、useEffectでlocalStorageから判定
+
+  // 状態管理
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,22 +65,33 @@ export default function SettlementPage() {
   const [monthlyStatus, setMonthlyStatus] = useState<MonthlyStatus>({ is_paid: false, is_received: false });
   const [useSmartSplit, setUseSmartSplit] = useState(false);
   const SCAN_BONUS_PER_ITEM = 50; 
+
   const [activePickerId, setActivePickerId] = useState<number | null>(null);
   const [activeCommentId, setActiveCommentId] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
-  const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'confirm' as 'alert' | 'confirm', title: '', message: '', confirmText: 'OK', onConfirm: () => {}, });
+
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    type: 'confirm' as 'alert' | 'confirm',
+    title: '',
+    message: '',
+    confirmText: 'OK', 
+    onConfirm: () => {},
+  });
   const closeModal = () => setModalConfig((prev) => ({ ...prev, isOpen: false }));
+  
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Expense | null>(null);
   const [isAnalysisOpen, setIsAnalysisOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
   const [visibleCount, setVisibleCount] = useState(10);
   const [showDetails, setShowDetails] = useState(false);
 
-  // ▼変更: 起動時にモードとユーザーを判定
+  // 起動時のモード・ユーザー判定
   useEffect(() => {
     const mode = localStorage.getItem('kurasel_mode');
     const storedName = localStorage.getItem('scan_io_user_name');
@@ -96,35 +139,148 @@ export default function SettlementPage() {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
     const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+
     const toYMD = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const firstDayStr = toYMD(new Date(year, month, 1));
     const lastDayStr = toYMD(new Date(year, month + 1, 0));
     
-    const { data: expensesData, error: expensesError } = await supabase.from('expenses').select('*').gte('purchase_date', firstDayStr).lte('purchase_date', lastDayStr).order('created_at', { ascending: false });
-    if (expensesError) console.error(expensesError); else setExpenses(expensesData || []);
+    const { data: expensesData, error: expensesError } = await supabase.from('expenses')
+      .select('*')
+      .gte('purchase_date', firstDayStr)
+      .lte('purchase_date', lastDayStr)
+      .order('created_at', { ascending: false });
+    
+    if (expensesError) console.error(expensesError);
+    else setExpenses(expensesData || []);
 
-    const { data: statusData } = await supabase.from('monthly_settlements').select('*').eq('month', monthKey).single();
-    if (statusData) { setMonthlyStatus({ is_paid: statusData.is_paid, is_received: statusData.is_received }); } else { setMonthlyStatus({ is_paid: false, is_received: false }); }
+    const { data: statusData } = await supabase
+      .from('monthly_settlements')
+      .select('*')
+      .eq('month', monthKey)
+      .single();
+    
+    if (statusData) {
+      setMonthlyStatus({ is_paid: statusData.is_paid, is_received: statusData.is_received });
+    } else {
+      setMonthlyStatus({ is_paid: false, is_received: false });
+    }
+
     setLoading(false);
   };
 
   useEffect(() => { 
-    // isDemoModeの判定が終わってからfetchするように制御（初期ロード時のちらつき防止）
     if (myUserName) fetchExpenses(); 
   }, [currentMonth, isDemoMode, myUserName]);
 
-  const checkDemo = () => { if (isDemoMode) { alert('⚠️ DEMOモード中はこの操作はできません'); return true; } return false; };
+  // デモモード操作ガード
+  const checkDemo = () => {
+    if (isDemoMode) {
+      alert('⚠️ DEMOモード中はこの操作はできません');
+      return true;
+    }
+    return false;
+  };
+
+  // AI分析実行
+  const handleAnalyze = async () => {
+    
+    setIsAnalyzing(true);
+    setIsAnalysisOpen(true);
+    
+    if (isDemoMode) {
+      setTimeout(() => {
+        const msg = `## 🤖 DEMO分析レポート\n\n**期間:** ${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月\n\n### 🌟 素晴らしい点\n食費と自炊のバランスが非常に良いです！外食を控えめにしつつ、スーパーでの買い物を上手に活用できていますね。二人の協力体制が見て取れます。\n\n### 📊 支出の傾向\n今月は「日用品」の割合が少し高めです。まとめ買いをしましたか？来月はストックを確認してから買い出しに行くと、さらに節約できるかもしれません。\n\n### 💡 ワンポイント・アドバイス\n週末に「ノーマネーデー（お金を使わない日）」を1日作ってみましょう。家にあるもので料理を作ったり、散歩を楽しんだりすることで、ゲーム感覚で節約ができますよ！`;
+        setAnalysisResult(msg);
+        setIsAnalysisOpen(true);
+        setIsAnalyzing(false);
+      }, 1500);
+      return;
+    }
+
+    try {
+      // 1. データ集計
+      const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0);
+      const categorySummary: { [key: string]: number } = {};
+      expenses.forEach(e => {
+        const cat = e.category || 'other';
+        categorySummary[cat] = (categorySummary[cat] || 0) + e.amount;
+      });
+
+      const catNameMap: { [key: string]: string } = {
+        food: '食費(自炊)', daily: '日用品', eatout: '外食', transport: '交通費', other: 'その他'
+      };
+      let categoryText = '';
+      Object.entries(categorySummary).forEach(([cat, amount]) => {
+        categoryText += `- ${catNameMap[cat] || cat}: ${amount.toLocaleString()}円\n`;
+      });
+
+      const myTotal = expenses.filter(e => e.paid_by === myUserName).reduce((sum, e) => sum + e.amount, 0);
+      const partnerTotal = totalAmount - myTotal;
+
+      // 2. プロンプト作成
+      const prompt = `
+        あなたは優秀で親しみやすいファイナンシャルプランナーです。
+        同棲中のカップルの今月の家計簿データを分析し、マークダウン形式でアドバイスをください。
+        
+        【データ】
+        ・対象月: ${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月
+        ・合計支出: ${totalAmount.toLocaleString()}円
+        ・カテゴリ内訳:
+        ${categoryText}
+        ・負担額: 私(${myTotal.toLocaleString()}円) vs 相手(${partnerTotal.toLocaleString()}円)
+
+        【出力フォーマット】
+        ## 🏠 ${currentMonth.getMonth() + 1}月の家計診断
+        
+        ### 🌟 Goodポイント
+        (ここが良い！という点を具体的に褒めてください。絵文字を使って明るく)
+
+        ### 📊 分析コメント
+        (支出のバランスや特徴について、客観的かつ優しい口調で分析してください)
+
+        ### 💡 二人へのアドバイス
+        (来月に向けて、無理なくできる節約のコツや、良好な関係を保つためのお金のアドバイスを1つ提案してください)
+
+        ※口調は「〜ですね」「〜しましょう」といった丁寧で優しい語りかけ口調でお願いします。
+        ※400文字以内でまとめてください。
+      `;
+
+      // 3. AI送信
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const result = await model.generateContent(prompt);
+      const response = result.response.text();
+
+      setAnalysisResult(response);
+      setIsAnalysisOpen(true);
+
+    } catch (error) {
+      console.error('Analysis error:', error);
+      alert('分析に失敗しました。時間をおいて再度お試しください。');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const handleStatusClick = (type: 'paid' | 'received') => {
     if (checkDemo()) return;
     const isPaidAction = type === 'paid';
     const willBeActive = isPaidAction ? !monthlyStatus.is_paid : !monthlyStatus.is_received;
     let title = '', message = '', confirmText = '';
+
     if (isPaidAction) {
-      if (willBeActive) { title = '支払い完了の確認'; message = '相手への支払いは完了しましたか？\nステータスを「支払い済み」に変更します。'; confirmText = '完了とする'; } else { title = '支払いの取り消し'; message = '「支払い済み」ステータスを取り消して元に戻しますか？'; confirmText = '取り消す'; }
+      if (willBeActive) {
+        title = '支払い完了の確認'; message = '相手への支払いは完了しましたか？\nステータスを「支払い済み」に変更します。'; confirmText = '完了とする';
+      } else {
+        title = '支払いの取り消し'; message = '「支払い済み」ステータスを取り消して元に戻しますか？'; confirmText = '取り消す';
+      }
     } else {
-      if (willBeActive) { title = '精算完了の確認'; message = '相手からの受け取りを確認しましたか？\nこれを押すと今月の精算は完了となります。'; confirmText = '精算完了'; } else { title = '受け取りの取り消し'; message = '「精算完了」ステータスを取り消して元に戻しますか？'; confirmText = '取り消す'; }
+      if (willBeActive) {
+        title = '精算完了の確認'; message = '相手からの受け取りを確認しましたか？\nこれを押すと今月の精算は完了となります。'; confirmText = '精算完了';
+      } else {
+        title = '受け取りの取り消し'; message = '「精算完了」ステータスを取り消して元に戻しますか？'; confirmText = '取り消す';
+      }
     }
+
     setModalConfig({ isOpen: true, type: 'confirm', title, message, confirmText, onConfirm: () => executeToggleStatus(type), });
   };
 
@@ -136,25 +292,112 @@ export default function SettlementPage() {
     const newStatus = { ...monthlyStatus };
     if (type === 'paid') newStatus.is_paid = !newStatus.is_paid;
     if (type === 'received') newStatus.is_received = !newStatus.is_received;
+
     setMonthlyStatus(newStatus);
     const { error } = await supabase.from('monthly_settlements').upsert({ month: monthKey, is_paid: newStatus.is_paid, is_received: newStatus.is_received, updated_at: new Date().toISOString() });
     if (error) { console.error(error); setMonthlyStatus(monthlyStatus); alert('更新失敗'); }
   };
 
-  const changeMonth = (amount: number) => { const newDate = new Date(currentMonth); newDate.setMonth(newDate.getMonth() + amount); setCurrentMonth(newDate); setVisibleCount(10); };
-  const handleDeleteClick = (id: number) => { if (checkDemo()) return; setModalConfig({ isOpen: true, type: 'confirm', title: '記録の削除', message: 'この記録を削除してもよろしいですか？', confirmText: '削除する', onConfirm: () => handleDelete(id), }); };
-  const handleDelete = async (id: number) => { closeModal(); try { const { data: targetItem, error: fetchError } = await supabase.from('expenses').select('receipt_url').eq('id', id).single(); if (fetchError) throw fetchError; if (targetItem?.receipt_url) { const fileName = targetItem.receipt_url.split('/').pop(); if (fileName) await supabase.storage.from('receipts').remove([fileName]); } const { error: deleteError } = await supabase.from('expenses').delete().eq('id', id); if (deleteError) throw deleteError; setExpenses(expenses.filter(e => e.id !== id)); } catch (error) { console.error('削除処理エラー:', error); alert('削除に失敗しました'); } };
-  const handleEditClick = (item: Expense) => { if (checkDemo()) return; setEditingItem(item); setIsEditOpen(true); };
+  const changeMonth = (amount: number) => {
+    const newDate = new Date(currentMonth);
+    newDate.setMonth(newDate.getMonth() + amount);
+    setCurrentMonth(newDate);
+    setVisibleCount(10);
+  };
+
+  const handleDeleteClick = (id: number) => {
+    if (checkDemo()) return;
+    setModalConfig({ 
+      isOpen: true, 
+      type: 'confirm', 
+      title: '記録の削除', 
+      message: 'この記録を削除してもよろしいですか？', 
+      confirmText: '削除する', 
+      onConfirm: () => handleDelete(id), 
+    });
+  };
+
+  const handleDelete = async (id: number) => {
+    closeModal();
+    try {
+      const { data: targetItem, error: fetchError } = await supabase.from('expenses').select('receipt_url').eq('id', id).single();
+      if (fetchError) throw fetchError;
+      if (targetItem?.receipt_url) {
+        const fileName = targetItem.receipt_url.split('/').pop();
+        if (fileName) await supabase.storage.from('receipts').remove([fileName]);
+      }
+      const { error: deleteError } = await supabase.from('expenses').delete().eq('id', id);
+      if (deleteError) throw deleteError;
+      setExpenses(expenses.filter(e => e.id !== id));
+    } catch (error) {
+      console.error('削除処理エラー:', error);
+      alert('削除に失敗しました');
+    }
+  };
+
+  const handleEditClick = (item: Expense) => { 
+    if (checkDemo()) return;
+    setEditingItem(item); setIsEditOpen(true); 
+  };
   const handleUpdateComplete = () => { fetchExpenses(); };
-  const handleAnalyze = () => { setIsAnalyzing(true); setTimeout(() => { const msg = isDemoMode ? `## 🤖 DEMO分析\n\nこれはデモデータに基づいた分析です。\n今月の支出バランスは非常に良好です！` : `## 🚧 準備中 (Coming Soon)\n\nAI家計診断機能は、次回のアップデートで公開予定です！\n\n実装をお楽しみに！`; setAnalysisResult(msg); setIsAnalysisOpen(true); setIsAnalyzing(false); }, 500); };
-  const handleReaction = async (item: Expense, reactionId: string) => { if (checkDemo()) return; const currentReactions = item.reactions || {}; const myCurrentReactionId = currentReactions[myUserName]; let newReactions = { ...currentReactions }; if (myCurrentReactionId === reactionId) delete newReactions[myUserName]; else newReactions[myUserName] = reactionId; setActivePickerId(null); const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, reactions: newReactions } : e); setExpenses(updatedExpenses); await supabase.from('expenses').update({ reactions: newReactions }).eq('id', item.id); };
-  const handleCommentSubmit = async (item: Expense) => { if (checkDemo()) return; if (!commentText.trim()) return; const newComment: Comment = { id: generateId(), user: myUserName, text: commentText.trim(), timestamp: new Date().toISOString(), }; const currentComments = item.comments || []; const newComments = [...currentComments, newComment]; const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e); setExpenses(updatedExpenses); setCommentText(''); await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id); };
-  const handleDeleteCommentClick = (item: Expense, commentId: string) => { if (checkDemo()) return; setModalConfig({ isOpen: true, type: 'confirm', title: 'コメントの削除', message: '本当にこのコメントを削除しますか？', confirmText: '削除する', onConfirm: () => executeDeleteComment(item, commentId), }); };
-  const executeDeleteComment = async (item: Expense, commentId: string) => { closeModal(); const currentComments = item.comments || []; const newComments = currentComments.filter(c => c.id !== commentId); const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e); setExpenses(updatedExpenses); await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id); };
+  
+  const handleReaction = async (item: Expense, reactionId: string) => {
+    if (checkDemo()) return;
+    const currentReactions = item.reactions || {};
+    const myCurrentReactionId = currentReactions[myUserName];
+    let newReactions = { ...currentReactions };
+    if (myCurrentReactionId === reactionId) delete newReactions[myUserName]; else newReactions[myUserName] = reactionId;
+    setActivePickerId(null);
+    const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, reactions: newReactions } : e);
+    setExpenses(updatedExpenses);
+    await supabase.from('expenses').update({ reactions: newReactions }).eq('id', item.id);
+  };
+
+  const handleCommentSubmit = async (item: Expense) => {
+    if (checkDemo()) return;
+    if (!commentText.trim()) return;
+    const newComment: Comment = { id: generateId(), user: myUserName, text: commentText.trim(), timestamp: new Date().toISOString(), };
+    const currentComments = item.comments || [];
+    const newComments = [...currentComments, newComment];
+    const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e);
+    setExpenses(updatedExpenses);
+    setCommentText('');
+    await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id);
+  };
+
+  const handleDeleteCommentClick = (item: Expense, commentId: string) => {
+    if (checkDemo()) return;
+    setModalConfig({ 
+      isOpen: true, 
+      type: 'confirm', 
+      title: 'コメントの削除', 
+      message: '本当にこのコメントを削除しますか？', 
+      confirmText: '削除する',
+      onConfirm: () => executeDeleteComment(item, commentId), 
+    });
+  };
+  const executeDeleteComment = async (item: Expense, commentId: string) => {
+    closeModal();
+    const currentComments = item.comments || [];
+    const newComments = currentComments.filter(c => c.id !== commentId);
+    const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e);
+    setExpenses(updatedExpenses);
+    await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id);
+  };
+
   const handleStartEditComment = (comment: Comment) => { setEditingCommentId(comment.id); setEditingText(comment.text); };
-  const handleSaveEditComment = async (item: Expense) => { if (checkDemo()) return; if (!editingText.trim() || !editingCommentId) return; const currentComments = item.comments || []; const newComments = currentComments.map(c => c.id === editingCommentId ? { ...c, text: editingText.trim() } : c); const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e); setExpenses(updatedExpenses); setEditingCommentId(null); setEditingText(''); await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id); };
+  const handleSaveEditComment = async (item: Expense) => {
+    if (checkDemo()) return;
+    if (!editingText.trim() || !editingCommentId) return;
+    const currentComments = item.comments || [];
+    const newComments = currentComments.map(c => c.id === editingCommentId ? { ...c, text: editingText.trim() } : c);
+    const updatedExpenses = expenses.map(e => e.id === item.id ? { ...e, comments: newComments } : e);
+    setExpenses(updatedExpenses); setEditingCommentId(null); setEditingText('');
+    await supabase.from('expenses').update({ comments: newComments }).eq('id', item.id);
+  };
   const formatDate = (dateString: string) => { const d = new Date(dateString); return `${d.getMonth() + 1}/${d.getDate()}`; };
 
+  // Calculation
   const totalMe = expenses.filter(e => e.paid_by === myUserName).reduce((sum, e) => sum + e.amount, 0);
   const totalPartner = expenses.filter(e => e.paid_by !== myUserName).reduce((sum, e) => sum + e.amount, 0);
   const totalAmount = totalMe + totalPartner;
@@ -194,8 +437,6 @@ export default function SettlementPage() {
         </h1>
         
         <div className="flex gap-2">
-          {/* ▼スイッチボタンは削除しました */}
-
           <button onClick={() => window.location.href = '/'} className="text-xs sm:text-sm font-bold text-slate-600 bg-white/80 backdrop-blur-md border border-white/40 px-3 py-2 sm:px-4 sm:py-2 rounded-full hover:bg-white hover:-translate-y-0.5 transition-all shadow-sm flex items-center gap-1">
             <ArrowLeft size={14} /> 入力へ
           </button>
